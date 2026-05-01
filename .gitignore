@@ -1,0 +1,12 @@
+node_modules/
+dist/
+release/
+.vite/
+dist-electron/
+.DS_Store
+*.log
+brain.json
+implementation_plan.md
+task.md
+.env
+*.local

@@ -1,0 +1,45 @@
+{
+  "name": "mochi-companion",
+  "version": "0.1.0",
+  "description": "A cozy 3D desktop companion",
+  "main": "dist/main/main.js",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "dev": "npm run build && electron . --dev",
+    "start": "electron .",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit",
+    "build": "vite build && tsc -p tsconfig.electron.json",
+    "dist": "npm run typecheck && npm run build && electron-builder --win --publish never"
+  },
+  "dependencies": {
+    "three": "^0.164.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.10",
+    "@types/three": "^0.164.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0",
+    "typescript": "^5.5.3",
+    "vite": "^5.3.3"
+  },
+  "build": {
+    "appId": "com.mochi.companion",
+    "productName": "Mochi",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "artifactName": "Mochi-Setup-${version}.exe"
+    }
+  }
+}
