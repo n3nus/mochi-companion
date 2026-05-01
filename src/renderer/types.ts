@@ -41,10 +41,11 @@ export interface EconomyState {
   yarn: number;
   softBrush: number;
   lastYieldAt: number;
+  lastCollectedAt: number;
 }
 
 export interface GameState {
-  version: 1;
+  version: 2;
   pet: PetState;
   story: StoryState;
   economy: EconomyState;

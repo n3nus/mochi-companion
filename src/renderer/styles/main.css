@@ -172,6 +172,11 @@ h2 {
   border-radius: 7px;
 }
 
+.ghost-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
 #scene-mount {
   position: relative;
   min-height: 0;
@@ -479,7 +484,24 @@ h2 {
 }
 
 .market-card {
+  position: relative;
+  overflow: hidden;
   padding: 14px;
+}
+
+.market-card::after {
+  content: "";
+  position: absolute;
+  right: -28px;
+  bottom: -36px;
+  width: 132px;
+  height: 96px;
+  border-radius: 50% 50% 0 0;
+  background:
+    radial-gradient(circle at 35% 30%, rgba(184, 242, 206, 0.5) 0 7%, transparent 8%),
+    radial-gradient(circle at 64% 34%, rgba(242, 210, 168, 0.45) 0 6%, transparent 7%),
+    linear-gradient(180deg, rgba(121, 200, 183, 0.18), rgba(85, 66, 48, 0.08));
+  pointer-events: none;
 }
 
 .market-head {

@@ -4,7 +4,7 @@ const now = () => Date.now();
 
 export function createInitialState(): GameState {
   return {
-    version: 1,
+    version: 2,
     pet: {
       hunger: 68,
       comfort: 62,
@@ -22,7 +22,8 @@ export function createInitialState(): GameState {
       food: 2,
       yarn: 1,
       softBrush: 1,
-      lastYieldAt: now()
+      lastYieldAt: now(),
+      lastCollectedAt: 0
     },
     story: {
       act: 1,
@@ -49,6 +50,7 @@ export function hydrateState(value: unknown): GameState {
   const base = createInitialState();
   if (!value || typeof value !== 'object') return base;
   const saved = value as Partial<GameState>;
+  if (saved.version !== 2) return base;
   return {
     ...base,
     ...saved,
@@ -147,15 +149,15 @@ export function applyCareAction(state: GameState, action: CareAction): GameState
 export function applyTimeDrift(state: GameState): GameState {
   const next = structuredClone(state) as GameState;
   const elapsed = Math.max(0, Date.now() - next.economy.lastYieldAt);
-  const yieldTicks = Math.floor(elapsed / 10000);
+  const yieldTicks = Math.floor(elapsed / 30000);
 
   if (yieldTicks > 0) {
     const cap = 20 + next.economy.gardenLevel * 12;
     next.economy.uncollectedPetals = Math.min(
       cap,
-      next.economy.uncollectedPetals + yieldTicks * (1 + next.economy.gardenLevel)
+      next.economy.uncollectedPetals + yieldTicks * next.economy.gardenLevel
     );
-    next.economy.lastYieldAt += yieldTicks * 10000;
+    next.economy.lastYieldAt += yieldTicks * 30000;
   }
 
   next.pet.hunger = clamp(next.pet.hunger - 1);
@@ -172,8 +174,10 @@ export function applyTimeDrift(state: GameState): GameState {
 
 export function collectYield(state: GameState): GameState {
   const next = applyTimeDrift(state);
+  if (next.economy.uncollectedPetals <= 0) return next;
   next.economy.petals += next.economy.uncollectedPetals;
   next.economy.uncollectedPetals = 0;
+  next.economy.lastCollectedAt = now();
   return next;
 }
 
@@ -203,12 +207,12 @@ export function advanceStory(state: GameState): GameState {
   const { actionCount } = next.story;
   const { dependency, stress, trust } = next.pet;
 
-  if (next.story.act === 1 && (actionCount >= 5 || dependency >= 30 || trust >= 38)) {
+  if (next.story.act === 1 && (actionCount >= 30 || (dependency >= 72 && trust >= 62))) {
     next.story.act = 2;
     next.story.sceneFlags.actTwoStarted = true;
   }
 
-  if (next.story.act === 2 && (actionCount >= 12 || (dependency >= 68 && stress >= 28))) {
+  if (next.story.act === 2 && (actionCount >= 80 || (dependency >= 92 && stress >= 58))) {
     next.story.act = 3;
     next.story.sceneFlags.actThreeStarted = true;
   }
@@ -216,7 +220,7 @@ export function advanceStory(state: GameState): GameState {
   if (
     next.story.act === 3 &&
     next.story.finaleStatus === 'locked' &&
-    (actionCount >= 16 || (dependency >= 84 && stress >= 42))
+    (actionCount >= 120 || (dependency >= 98 && stress >= 72))
   ) {
     next.story.finaleStatus = 'ready';
   }

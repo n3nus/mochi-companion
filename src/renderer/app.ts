@@ -112,6 +112,7 @@ const challengePlayfield = document.querySelector<HTMLDivElement>('#challenge-pl
 const petalsEl = document.querySelector<HTMLHeadingElement>('#petals')!;
 const inventoryEl = document.querySelector<HTMLDivElement>('#inventory')!;
 const gardenPriceEl = document.querySelector<HTMLSpanElement>('#garden-price')!;
+const collectButton = document.querySelector<HTMLButtonElement>('#collect')!;
 
 const audio = new RoomAudio();
 let state = resetState();
@@ -168,6 +169,8 @@ function render() {
     <span>Garden Lv.${state.economy.gardenLevel}</span>
     <span>Ready ${state.economy.uncollectedPetals}</span>
   `;
+  collectButton.disabled = state.economy.uncollectedPetals <= 0;
+  collectButton.textContent = state.economy.uncollectedPetals > 0 ? `Collect ${state.economy.uncollectedPetals}` : 'Growing';
   gardenPriceEl.textContent = String(18 + state.economy.gardenLevel * 10);
   document.querySelectorAll<HTMLButtonElement>('[data-buy]').forEach((button) => {
     const item = button.dataset.buy as 'food' | 'yarn' | 'softBrush' | 'garden';
@@ -553,6 +556,11 @@ document.querySelector<HTMLButtonElement>('#challenge-cancel')?.addEventListener
 });
 
 document.querySelector<HTMLButtonElement>('#collect')?.addEventListener('click', async () => {
+  if (state.economy.uncollectedPetals <= 0) {
+    say('The garden is still growing. Give it a little time.', 'soft');
+    render();
+    return;
+  }
   state = collectYield(state);
   say('The garden had something ready.', 'spark');
   render();
