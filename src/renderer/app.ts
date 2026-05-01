@@ -2,7 +2,16 @@ import './styles/main.css';
 import { RoomAudio } from './audio';
 import { sceneEvents, pickActionLine, pickIdleLine } from './content/lines';
 import { CompanionScene, type SceneRoom } from './scene';
-import { applyCareAction, applyTimeDrift, buyItem, collectYield, hydrateState, resetState } from './state';
+import {
+  applyCareAction,
+  applyTimeDrift,
+  buyItem,
+  harvestCrop,
+  hydrateState,
+  plantSeed,
+  resetState,
+  waterPlots
+} from './state';
 import type { AudioCue } from './audio';
 import type { CareAction, GameState, PetBehavior, SceneEvent } from './types';
 
@@ -38,6 +47,12 @@ appRoot.innerHTML = `
           </div>
         </div>
         <div id="scene-mount"></div>
+        <section class="garden-layer hidden" id="garden-layer" aria-label="Garden plots">
+          <div class="garden-board" id="garden-board"></div>
+          <button class="watering-can" id="watering-can" aria-label="Water crops">
+            <span></span>
+          </button>
+        </section>
         <div class="cat-stage" id="cat-stage" aria-hidden="true">
           <div class="cat-shadow"></div>
           <div class="cat-sprite">
@@ -112,10 +127,12 @@ appRoot.innerHTML = `
               <p class="eyebrow">Pocket</p>
               <h2 id="petals">0 petals</h2>
             </div>
-            <button class="ghost-button" id="collect">Collect</button>
+            <button class="ghost-button" id="garden-help">Garden</button>
           </div>
           <div class="inventory-row" id="inventory"></div>
           <div class="shop-grid">
+            <button class="shop-button" data-buy="seed">Seed <small>4</small></button>
+            <button class="shop-button" data-buy="water">Water <small>5</small></button>
             <button class="shop-button" data-buy="food">Food <small>6</small></button>
             <button class="shop-button" data-buy="yarn">Yarn <small>8</small></button>
             <button class="shop-button" data-buy="softBrush">Brush <small>10</small></button>
@@ -147,7 +164,10 @@ const challengePlayfield = document.querySelector<HTMLDivElement>('#challenge-pl
 const petalsEl = document.querySelector<HTMLHeadingElement>('#petals')!;
 const inventoryEl = document.querySelector<HTMLDivElement>('#inventory')!;
 const gardenPriceEl = document.querySelector<HTMLSpanElement>('#garden-price')!;
-const collectButton = document.querySelector<HTMLButtonElement>('#collect')!;
+const gardenHelpButton = document.querySelector<HTMLButtonElement>('#garden-help')!;
+const gardenLayer = document.querySelector<HTMLElement>('#garden-layer')!;
+const gardenBoard = document.querySelector<HTMLDivElement>('#garden-board')!;
+const wateringCan = document.querySelector<HTMLButtonElement>('#watering-can')!;
 const catStage = document.querySelector<HTMLDivElement>('#cat-stage')!;
 
 const audio = new RoomAudio();
@@ -157,6 +177,7 @@ let isFinaleRunning = false;
 let activeChallenge: CareAction | null = null;
 let challengeTimer: number | null = null;
 let currentRoom: SceneRoom = 'room';
+let catWanderTimer: number | null = null;
 
 function titleForAct(act: 1 | 2 | 3) {
   if (act === 1) return "Mochi's room";
@@ -175,6 +196,84 @@ function meter(label: string, value: number) {
       <div class="meter-track"><div class="meter-fill" style="width:${value}%"></div></div>
     </div>
   `;
+}
+
+type ShopItem = 'seed' | 'water' | 'food' | 'yarn' | 'softBrush' | 'garden';
+
+function priceFor(item: ShopItem) {
+  if (item === 'garden') return 18 + state.economy.gardenLevel * 10;
+  if (item === 'softBrush') return 10;
+  if (item === 'yarn') return 8;
+  if (item === 'food') return 6;
+  if (item === 'water') return 5;
+  return 4;
+}
+
+function cropLabel(progress: number) {
+  if (progress >= 100) return 'ready';
+  if (progress >= 58) return 'leaf';
+  if (progress >= 24) return 'sprout';
+  return 'seed';
+}
+
+function renderGarden() {
+  gardenLayer.classList.toggle('hidden', currentRoom !== 'garden');
+  gardenBoard.innerHTML = state.economy.cropPlots
+    .map((plot) => {
+      const progress = Math.round(plot.progress);
+      const water = Math.round(plot.water);
+      const stateClass = !plot.planted ? 'empty' : progress >= 100 ? 'ready' : water <= 0 ? 'dry' : 'growing';
+      const label = !plot.planted ? 'empty' : cropLabel(progress);
+
+      return `
+        <button class="crop-plot ${stateClass}" data-plot="${plot.id}" aria-label="Garden plot ${plot.id + 1}">
+          <span class="crop-soil"></span>
+          <span class="crop-plant" style="--growth:${Math.max(4, progress)}%"></span>
+          <span class="crop-meta">${label}</span>
+          <span class="crop-bars">
+            <i style="width:${progress}%"></i>
+            <b style="width:${water}%"></b>
+          </span>
+        </button>
+      `;
+    })
+    .join('');
+}
+
+function placeCatForBehavior() {
+  const actOffset = state.story.act === 1 ? 0 : state.story.act === 2 ? -2 : 3;
+  const positions: Record<PetBehavior, [number, number]> = {
+    idle: currentRoom === 'garden' ? [70, 62] : [44, 72],
+    approach: currentRoom === 'garden' ? [61, 58] : [42, 64],
+    eat: [31, 68],
+    play: [57, 86],
+    sleep: [69, 62],
+    refuse: [34, 82],
+    stare: [47, 70],
+    follow: [50, 66],
+    exit: [76, 74]
+  };
+  const [left, bottom] = positions[state.pet.currentBehavior];
+  catStage.style.left = `${left + actOffset}%`;
+  catStage.style.bottom = `${bottom}px`;
+}
+
+function wanderCat() {
+  if (activeChallenge || isFinaleRunning) return;
+  const roomRange = currentRoom === 'garden' ? [58, 78] : [30, 68];
+  const left = roomRange[0] + Math.random() * (roomRange[1] - roomRange[0]);
+  const bottom = currentRoom === 'garden' ? 54 + Math.random() * 36 : 58 + Math.random() * 42;
+  catStage.dataset.walking = 'true';
+  catStage.style.left = `${left}%`;
+  catStage.style.bottom = `${bottom}px`;
+  window.setTimeout(() => {
+    catStage.dataset.walking = 'false';
+  }, 760);
+}
+
+function startCatWander() {
+  if (catWanderTimer !== null) window.clearInterval(catWanderTimer);
+  catWanderTimer = window.setInterval(wanderCat, 6500);
 }
 
 function render() {
@@ -207,21 +306,24 @@ function render() {
 
   petalsEl.textContent = `${state.economy.petals} petals`;
   inventoryEl.innerHTML = `
+    <span>Seeds ${state.economy.seeds}</span>
+    <span>Water ${state.economy.water}</span>
     <span>Food ${state.economy.food}</span>
     <span>Yarn ${state.economy.yarn}</span>
     <span>Brush ${state.economy.softBrush}</span>
     <span>Garden Lv.${state.economy.gardenLevel}</span>
-    <span>Ready ${state.economy.uncollectedPetals}</span>
   `;
-  collectButton.disabled = state.economy.uncollectedPetals <= 0;
-  collectButton.textContent = state.economy.uncollectedPetals > 0 ? `Collect ${state.economy.uncollectedPetals}` : 'Growing';
+  const readyCrops = state.economy.cropPlots.filter((plot) => plot.planted && plot.progress >= 100).length;
+  gardenHelpButton.textContent = readyCrops > 0 ? `${readyCrops} ready` : 'Garden';
   gardenPriceEl.textContent = String(18 + state.economy.gardenLevel * 10);
   document.querySelectorAll<HTMLButtonElement>('[data-buy]').forEach((button) => {
-    const item = button.dataset.buy as 'food' | 'yarn' | 'softBrush' | 'garden';
-    const price = item === 'garden' ? 18 + state.economy.gardenLevel * 10 : item === 'softBrush' ? 10 : item === 'yarn' ? 8 : 6;
+    const item = button.dataset.buy as ShopItem;
+    const price = priceFor(item);
     button.disabled = state.economy.petals < price;
   });
 
+  placeCatForBehavior();
+  renderGarden();
   scene?.setState(state);
   scene?.setRoom(currentRoom);
   document.querySelectorAll<HTMLButtonElement>('[data-room]').forEach((button) => {
@@ -318,10 +420,12 @@ async function completeChallenge(action: CareAction) {
 
 function startChallenge(action: CareAction) {
   if (isFinaleRunning) return;
-  if (action === 'tend' && currentRoom !== 'garden') {
+  if (action === 'tend') {
     setRoom('garden');
+    say('Plant seeds, drag the watering can over soil, then harvest when a crop is ready.', 'soft');
+    return;
   }
-  if (action !== 'tend' && currentRoom !== 'room') {
+  if (currentRoom !== 'room') {
     setRoom('room');
   }
   void audio.start();
@@ -621,27 +725,108 @@ document.querySelector<HTMLButtonElement>('#challenge-cancel')?.addEventListener
   say('We can do another routine.', 'soft');
 });
 
-document.querySelector<HTMLButtonElement>('#collect')?.addEventListener('click', async () => {
-  if (state.economy.uncollectedPetals <= 0) {
-    say('The garden is still growing. Give it a little time.', 'soft');
-    render();
-    return;
+gardenHelpButton.addEventListener('click', () => {
+  setRoom('garden');
+  say('Seeds become food only if the soil stays watered. Drag the can across the plots.', 'soft');
+});
+
+gardenBoard.addEventListener('click', async (event) => {
+  const plotButton = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-plot]');
+  if (!plotButton) return;
+  const plotId = Number(plotButton.dataset.plot);
+  const plot = state.economy.cropPlots[plotId];
+  if (!plot) return;
+
+  const before = structuredClone(state);
+  if (!plot.planted) {
+    state = plantSeed(state, plotId);
+    say(state.economy.seeds === before.economy.seeds ? 'You need a seed packet first.' : 'A seed went into the soil.', 'soft');
+  } else if (plot.progress >= 100) {
+    state = harvestCrop(state, plotId);
+    state = applyCareAction(state, 'tend');
+    say('Harvested. Food for the room, petals for the pocket.', 'spark');
+    addNote('Garden harvest completed.');
+  } else if (plot.water <= 0) {
+    say('This one is dry. Use the watering can before it grows again.', 'low');
+  } else {
+    say('Still growing. The soil is doing the slow part.', 'soft');
   }
-  state = collectYield(state);
-  say('The garden had something ready.', 'spark');
+
   render();
   await persist();
 });
 
 document.querySelectorAll<HTMLButtonElement>('[data-buy]').forEach((button) => {
   button.addEventListener('click', async () => {
-    const item = button.dataset.buy as 'food' | 'yarn' | 'softBrush' | 'garden';
+    const item = button.dataset.buy as ShopItem;
     const before = state.economy.petals;
     state = buyItem(state, item);
-    say(state.economy.petals === before ? 'Not enough petals yet.' : 'Bought. Put it somewhere Mochi can see.', 'soft');
+    say(state.economy.petals === before ? 'Not enough petals yet.' : 'Bought. Put it somewhere Mochi can use.', 'soft');
     render();
     await persist();
   });
+});
+
+let watering = false;
+let wateringPointerId: number | null = null;
+let wateredPlots = new Set<number>();
+
+function markWateredPlot(clientX: number, clientY: number) {
+  wateringCan.style.left = `${clientX - gardenLayer.getBoundingClientRect().left - 27}px`;
+  wateringCan.style.top = `${clientY - gardenLayer.getBoundingClientRect().top - 24}px`;
+  wateringCan.style.pointerEvents = 'none';
+  const element = document.elementFromPoint(clientX, clientY);
+  wateringCan.style.pointerEvents = '';
+  const plotButton = element?.closest<HTMLButtonElement>('[data-plot]');
+  if (!plotButton) return;
+  const plotId = Number(plotButton.dataset.plot);
+  const plot = state.economy.cropPlots[plotId];
+  if (!plot?.planted || plot.progress >= 100) return;
+  wateredPlots.add(plotId);
+  plotButton.classList.add('water-preview');
+}
+
+wateringCan.addEventListener('pointerdown', (event) => {
+  if (currentRoom !== 'garden') return;
+  if (state.economy.water <= 0) {
+    say('The can is empty. Buy water before the soil can drink.', 'low');
+    return;
+  }
+  watering = true;
+  wateringPointerId = event.pointerId;
+  wateredPlots = new Set();
+  wateringCan.setPointerCapture(event.pointerId);
+  wateringCan.classList.add('dragging');
+  markWateredPlot(event.clientX, event.clientY);
+});
+
+wateringCan.addEventListener('pointermove', (event) => {
+  if (!watering) return;
+  markWateredPlot(event.clientX, event.clientY);
+});
+
+wateringCan.addEventListener('pointerup', async () => {
+  if (!watering) return;
+  watering = false;
+  wateringCan.classList.remove('dragging');
+  if (wateringPointerId !== null) {
+    wateringCan.releasePointerCapture(wateringPointerId);
+  }
+  wateringPointerId = null;
+
+  if (wateredPlots.size > 0) {
+    const beforeWater = state.economy.water;
+    state = waterPlots(state, [...wateredPlots]);
+    state = applyCareAction(state, 'tend');
+    const used = beforeWater - state.economy.water;
+    say(used > 0 ? `Watered ${used} plot${used === 1 ? '' : 's'}.` : 'Those plots cannot take water right now.', 'spark');
+    addNote('Garden watering completed.');
+    render();
+    await persist();
+  } else {
+    say('Drag the can across planted soil.', 'soft');
+    render();
+  }
 });
 
 document.querySelector<HTMLButtonElement>('#minimize')?.addEventListener('click', () => window.mochi.window.minimize());
@@ -663,6 +848,7 @@ async function init() {
 
   scene = new CompanionScene(mount, handleScenePick);
   scene.update();
+  startCatWander();
   render();
   say(state.story.aftermathStatus === 'returned' ? 'You still remember the routine.' : pickIdleLine(state), 'soft');
 
@@ -678,7 +864,7 @@ async function init() {
     }
     render();
     await persist();
-  }, 18000);
+  }, 7000);
 }
 
 void init();

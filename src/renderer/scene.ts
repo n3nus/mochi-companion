@@ -20,6 +20,8 @@ export class CompanionScene {
   private readonly ears: THREE.Mesh[] = [];
   private readonly paws: THREE.Mesh[] = [];
   private readonly interactives: THREE.Object3D[] = [];
+  private readonly roomObjects: THREE.Object3D[] = [];
+  private readonly gardenObjects: THREE.Object3D[] = [];
   private readonly motion = new MochiMotion();
   private readonly previousPetPosition = new THREE.Vector3();
   private shadow!: THREE.Mesh;
@@ -42,6 +44,7 @@ export class CompanionScene {
     this.camera.lookAt(0, 1.1, 0);
 
     this.buildRoom();
+    this.buildPet();
     this.setRoom('room');
     this.resize();
     this.mount.addEventListener('pointerdown', this.handlePointer);
@@ -163,6 +166,12 @@ export class CompanionScene {
     this.room = room;
     this.camera.position.set(room === 'room' ? 0 : -0.2, room === 'room' ? 3.4 : 3.8, room === 'room' ? 8.4 : 7.4);
     this.camera.lookAt(room === 'room' ? 0 : -1.2, room === 'room' ? 1.1 : 0.65, room === 'room' ? 0 : -0.55);
+    this.roomObjects.forEach((object) => {
+      object.visible = room === 'room';
+    });
+    this.gardenObjects.forEach((object) => {
+      object.visible = room === 'garden';
+    });
     this.interactives.forEach((object) => {
       const action = object.userData.action as CareAction;
       object.visible = room === 'garden' ? action === 'tend' : action !== 'tend';
@@ -191,31 +200,64 @@ export class CompanionScene {
     const floor = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.16, 4.8), floorMat);
     floor.position.set(0, -0.08, 0);
     floor.receiveShadow = true;
+    this.roomObjects.push(floor);
     this.scene.add(floor);
 
     const gardenGround = new THREE.Mesh(
       new THREE.BoxGeometry(7.2, 0.12, 4.8),
-      new THREE.MeshStandardMaterial({ color: '#1f3828', roughness: 0.94 })
+      new THREE.MeshStandardMaterial({ color: '#29442d', roughness: 0.94 })
     );
     gardenGround.position.set(0, -0.015, 0);
     gardenGround.receiveShadow = true;
     gardenGround.userData.action = 'tend';
     this.interactives.push(gardenGround);
+    this.gardenObjects.push(gardenGround);
     this.scene.add(gardenGround);
+
+    const gardenBack = new THREE.Mesh(
+      new THREE.PlaneGeometry(9.4, 4.8),
+      new THREE.MeshBasicMaterial({
+        color: '#7fb79a',
+        transparent: true,
+        opacity: 0.52
+      })
+    );
+    gardenBack.position.set(0, 2.15, -2.56);
+    this.gardenObjects.push(gardenBack);
+    this.scene.add(gardenBack);
+
+    const fenceMat = new THREE.MeshStandardMaterial({ color: '#c8a475', roughness: 0.82 });
+    for (let i = 0; i < 9; i += 1) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.12, 1.05, 0.1), fenceMat);
+      post.position.set(-3.3 + i * 0.82, 0.5, -2.18);
+      post.castShadow = true;
+      this.gardenObjects.push(post);
+      this.scene.add(post);
+    }
+    for (const y of [0.28, 0.68]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(7.2, 0.09, 0.1), fenceMat);
+      rail.position.set(0, y, -2.12);
+      rail.castShadow = true;
+      this.gardenObjects.push(rail);
+      this.scene.add(rail);
+    }
 
     const back = new THREE.Mesh(new THREE.BoxGeometry(7.2, 3.8, 0.18), wallMat);
     back.position.set(0, 1.85, -2.35);
     back.receiveShadow = true;
     back.userData.actShift = true;
+    this.roomObjects.push(back);
     this.scene.add(back);
 
     const left = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3.8, 4.8), wallMat);
     left.position.set(-3.6, 1.85, 0);
     left.receiveShadow = true;
+    this.roomObjects.push(left);
     this.scene.add(left);
 
     const windowFrame = new THREE.Mesh(new THREE.BoxGeometry(1.35, 1.05, 0.08), trimMat);
     windowFrame.position.set(1.55, 2.25, -2.22);
+    this.roomObjects.push(windowFrame);
     this.scene.add(windowFrame);
 
     const windowGlow = new THREE.Mesh(
@@ -223,6 +265,7 @@ export class CompanionScene {
       new THREE.MeshBasicMaterial({ color: '#ffe2a8', transparent: true, opacity: 0.48 })
     );
     windowGlow.position.set(1.55, 2.25, -2.17);
+    this.roomObjects.push(windowGlow);
     this.scene.add(windowGlow);
 
     const shelf = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.12, 0.36), trimMat);
@@ -231,6 +274,7 @@ export class CompanionScene {
     shelf.userData.float = true;
     shelf.userData.baseY = shelf.position.y;
     shelf.userData.speed = 0.45;
+    this.roomObjects.push(shelf);
     this.scene.add(shelf);
 
     this.addInteractive('feed', new THREE.Vector3(-2.05, 0.16, 0.9), '#d99c76', 'bowl');
@@ -311,6 +355,11 @@ export class CompanionScene {
     mesh.userData.baseY = position.y;
     mesh.userData.speed = 1.6;
     this.interactives.push(mesh);
+    if (action === 'tend') {
+      this.gardenObjects.push(mesh);
+    } else {
+      this.roomObjects.push(mesh);
+    }
     this.scene.add(mesh);
   }
 

@@ -36,16 +36,25 @@ export interface StoryState {
 export interface EconomyState {
   petals: number;
   gardenLevel: number;
-  uncollectedPetals: number;
+  seeds: number;
+  water: number;
   food: number;
   yarn: number;
   softBrush: number;
-  lastYieldAt: number;
+  cropPlots: CropPlot[];
   lastCollectedAt: number;
 }
 
+export interface CropPlot {
+  id: number;
+  planted: boolean;
+  progress: number;
+  water: number;
+  lastUpdatedAt: number;
+}
+
 export interface GameState {
-  version: 2;
+  version: 3;
   pet: PetState;
   story: StoryState;
   economy: EconomyState;

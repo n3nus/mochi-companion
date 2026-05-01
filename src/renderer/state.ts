@@ -1,10 +1,21 @@
-import type { CareAction, GameState, PetBehavior } from './types';
+import type { CareAction, CropPlot, GameState, PetBehavior } from './types';
 
 const now = () => Date.now();
 
+function createCropPlots(count = 6): CropPlot[] {
+  const createdAt = now();
+  return Array.from({ length: count }, (_, id) => ({
+    id,
+    planted: false,
+    progress: 0,
+    water: 0,
+    lastUpdatedAt: createdAt
+  }));
+}
+
 export function createInitialState(): GameState {
   return {
-    version: 2,
+    version: 3,
     pet: {
       hunger: 68,
       comfort: 62,
@@ -18,11 +29,12 @@ export function createInitialState(): GameState {
     economy: {
       petals: 12,
       gardenLevel: 1,
-      uncollectedPetals: 0,
+      seeds: 2,
+      water: 3,
       food: 2,
       yarn: 1,
       softBrush: 1,
-      lastYieldAt: now(),
+      cropPlots: createCropPlots(),
       lastCollectedAt: 0
     },
     story: {
@@ -50,12 +62,19 @@ export function hydrateState(value: unknown): GameState {
   const base = createInitialState();
   if (!value || typeof value !== 'object') return base;
   const saved = value as Partial<GameState>;
-  if (saved.version !== 2) return base;
+  if (saved.version !== 3) return base;
   return {
     ...base,
     ...saved,
     pet: { ...base.pet, ...saved.pet },
-    economy: { ...base.economy, ...saved.economy },
+    economy: {
+      ...base.economy,
+      ...saved.economy,
+      cropPlots:
+        saved.economy?.cropPlots?.length === base.economy.cropPlots.length
+          ? saved.economy.cropPlots.map((plot, id) => ({ ...base.economy.cropPlots[id], ...plot, id }))
+          : base.economy.cropPlots
+    },
     story: {
       ...base.story,
       ...saved.story,
@@ -136,8 +155,6 @@ export function applyCareAction(state: GameState, action: CareAction): GameState
   }
 
   if (action === 'tend') {
-    const earned = 4 + next.economy.gardenLevel * 2;
-    next.economy.petals += earned;
     next.pet.energy = clamp(next.pet.energy - 5);
     next.pet.trust = clamp(next.pet.trust + 2);
     next.pet.stress = clamp(next.pet.stress - 2);
@@ -148,17 +165,8 @@ export function applyCareAction(state: GameState, action: CareAction): GameState
 
 export function applyTimeDrift(state: GameState): GameState {
   const next = structuredClone(state) as GameState;
-  const elapsed = Math.max(0, Date.now() - next.economy.lastYieldAt);
-  const yieldTicks = Math.floor(elapsed / 30000);
-
-  if (yieldTicks > 0) {
-    const cap = 20 + next.economy.gardenLevel * 12;
-    next.economy.uncollectedPetals = Math.min(
-      cap,
-      next.economy.uncollectedPetals + yieldTicks * next.economy.gardenLevel
-    );
-    next.economy.lastYieldAt += yieldTicks * 30000;
-  }
+  const driftAt = now();
+  next.economy.cropPlots = next.economy.cropPlots.map((plot) => updateCropPlot(plot, driftAt, next.economy.gardenLevel));
 
   next.pet.hunger = clamp(next.pet.hunger - 1);
   next.pet.comfort = clamp(next.pet.comfort - 1);
@@ -172,18 +180,80 @@ export function applyTimeDrift(state: GameState): GameState {
   return advanceStory(next);
 }
 
-export function collectYield(state: GameState): GameState {
+function updateCropPlot(plot: CropPlot, timestamp: number, gardenLevel: number): CropPlot {
+  if (!plot.planted || plot.progress >= 100) {
+    return { ...plot, lastUpdatedAt: timestamp };
+  }
+
+  const elapsedSeconds = Math.max(0, (timestamp - plot.lastUpdatedAt) / 1000);
+  const waterUsed = Math.min(plot.water, elapsedSeconds * (0.22 + gardenLevel * 0.015));
+  const progressGain = waterUsed * (0.28 + gardenLevel * 0.035);
+
+  return {
+    ...plot,
+    progress: Math.min(100, plot.progress + progressGain),
+    water: Math.max(0, plot.water - waterUsed),
+    lastUpdatedAt: timestamp
+  };
+}
+
+export function plantSeed(state: GameState, plotId: number): GameState {
   const next = applyTimeDrift(state);
-  if (next.economy.uncollectedPetals <= 0) return next;
-  next.economy.petals += next.economy.uncollectedPetals;
-  next.economy.uncollectedPetals = 0;
+  const plot = next.economy.cropPlots[plotId];
+  if (!plot || plot.planted || next.economy.seeds <= 0) return next;
+  next.economy.seeds -= 1;
+  next.economy.cropPlots[plotId] = {
+    ...plot,
+    planted: true,
+    progress: 2,
+    water: 18,
+    lastUpdatedAt: now()
+  };
+  return next;
+}
+
+export function waterPlots(state: GameState, plotIds: number[]): GameState {
+  const next = applyTimeDrift(state);
+  const uniqueIds = [...new Set(plotIds)];
+
+  for (const plotId of uniqueIds) {
+    if (next.economy.water <= 0) break;
+    const plot = next.economy.cropPlots[plotId];
+    if (!plot?.planted || plot.progress >= 100) continue;
+    next.economy.water -= 1;
+    next.economy.cropPlots[plotId] = {
+      ...plot,
+      water: Math.min(100, plot.water + 42),
+      lastUpdatedAt: now()
+    };
+  }
+
+  return next;
+}
+
+export function harvestCrop(state: GameState, plotId: number): GameState {
+  const next = applyTimeDrift(state);
+  const plot = next.economy.cropPlots[plotId];
+  if (!plot?.planted || plot.progress < 100) return next;
+  next.economy.cropPlots[plotId] = {
+    ...plot,
+    planted: false,
+    progress: 0,
+    water: 0,
+    lastUpdatedAt: now()
+  };
+  next.economy.food += 1;
+  next.economy.petals += 3 + next.economy.gardenLevel;
+  next.economy.seeds += plotId % 3 === 0 ? 1 : 0;
   next.economy.lastCollectedAt = now();
   return next;
 }
 
-export function buyItem(state: GameState, item: 'food' | 'yarn' | 'softBrush' | 'garden'): GameState {
+export function buyItem(state: GameState, item: 'seed' | 'water' | 'food' | 'yarn' | 'softBrush' | 'garden'): GameState {
   const next = structuredClone(state) as GameState;
   const prices = {
+    seed: 4,
+    water: 5,
     food: 6,
     yarn: 8,
     softBrush: 10,
@@ -195,6 +265,10 @@ export function buyItem(state: GameState, item: 'food' | 'yarn' | 'softBrush' | 
 
   if (item === 'garden') {
     next.economy.gardenLevel += 1;
+  } else if (item === 'seed') {
+    next.economy.seeds += 1;
+  } else if (item === 'water') {
+    next.economy.water += 2;
   } else {
     next.economy[item] += 1;
   }
