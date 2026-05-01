@@ -63,17 +63,24 @@ export function hydrateState(value: unknown): GameState {
   if (!value || typeof value !== 'object') return base;
   const saved = value as Partial<GameState>;
   if (saved.version !== 3) return base;
-  return {
+  const sessionStartedAt = now();
+  // Saved progress is preserved, but growth timers restart with the running app session.
+  const hydrated = {
     ...base,
     ...saved,
-    pet: { ...base.pet, ...saved.pet },
+    pet: { ...base.pet, ...saved.pet, lastInteractionAt: sessionStartedAt },
     economy: {
       ...base.economy,
       ...saved.economy,
       cropPlots:
         saved.economy?.cropPlots?.length === base.economy.cropPlots.length
-          ? saved.economy.cropPlots.map((plot, id) => ({ ...base.economy.cropPlots[id], ...plot, id }))
-          : base.economy.cropPlots
+          ? saved.economy.cropPlots.map((plot, id) => ({
+              ...base.economy.cropPlots[id],
+              ...plot,
+              id,
+              lastUpdatedAt: sessionStartedAt
+            }))
+          : base.economy.cropPlots.map((plot) => ({ ...plot, lastUpdatedAt: sessionStartedAt }))
     },
     story: {
       ...base.story,
@@ -83,6 +90,8 @@ export function hydrateState(value: unknown): GameState {
       promiseFlags: { ...base.story.promiseFlags, ...saved.story?.promiseFlags }
     }
   };
+
+  return hydrated;
 }
 
 function clamp(value: number) {
@@ -181,7 +190,7 @@ export function applyTimeDrift(state: GameState): GameState {
     next.pet.currentBehavior = 'idle';
   }
 
-  if (Date.now() - next.pet.lastInteractionAt > 25000) {
+  if (driftAt - next.pet.lastInteractionAt > 25000) {
     next.pet.stress = clamp(next.pet.stress + (next.story.act === 1 ? 2 : 6));
     next.story.ritualCounters.ignore += 1;
   }
