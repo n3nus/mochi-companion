@@ -59,6 +59,18 @@ appRoot.innerHTML = `
           <button class="routine-button" data-action="rest"><span>Rest</span><small>Bed</small></button>
         </section>
 
+        <section class="challenge-card hidden" id="challenge-card">
+          <div class="challenge-header">
+            <div>
+              <p class="eyebrow" id="challenge-label">Routine</p>
+              <h2 id="challenge-title">Prepare</h2>
+            </div>
+            <button class="icon-button" id="challenge-cancel" aria-label="Cancel routine">x</button>
+          </div>
+          <p id="challenge-copy" class="challenge-copy"></p>
+          <div id="challenge-playfield" class="challenge-playfield"></div>
+        </section>
+
         <section class="notes-card">
           <p class="eyebrow">Session notes</p>
           <ol id="notes"></ol>
@@ -75,11 +87,18 @@ const metersEl = document.querySelector<HTMLDivElement>('#meters')!;
 const behaviorEl = document.querySelector<HTMLHeadingElement>('#behavior')!;
 const actTitleEl = document.querySelector<HTMLHeadingElement>('#act-title')!;
 const hintEl = document.querySelector<HTMLDivElement>('#scene-hint')!;
+const challengeCard = document.querySelector<HTMLElement>('#challenge-card')!;
+const challengeLabel = document.querySelector<HTMLParagraphElement>('#challenge-label')!;
+const challengeTitle = document.querySelector<HTMLHeadingElement>('#challenge-title')!;
+const challengeCopy = document.querySelector<HTMLParagraphElement>('#challenge-copy')!;
+const challengePlayfield = document.querySelector<HTMLDivElement>('#challenge-playfield')!;
 
 const audio = new RoomAudio();
 let state = resetState();
 let scene: CompanionScene;
 let isFinaleRunning = false;
+let activeChallenge: CareAction | null = null;
+let challengeTimer: number | null = null;
 
 function titleForAct(act: 1 | 2 | 3) {
   if (act === 1) return "Mochi's room";
@@ -122,6 +141,12 @@ function render() {
   ].join('');
 
   scene?.setState(state);
+}
+
+function setActiveButton(action: CareAction | null) {
+  document.querySelectorAll<HTMLButtonElement>('[data-action]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.action === action);
+  });
 }
 
 function addNote(text: string) {
@@ -178,6 +203,207 @@ async function runRoutine(action: CareAction) {
   }
 }
 
+function stopChallengeTimer() {
+  if (challengeTimer !== null) {
+    window.clearInterval(challengeTimer);
+    challengeTimer = null;
+  }
+}
+
+function clearChallenge() {
+  stopChallengeTimer();
+  activeChallenge = null;
+  setActiveButton(null);
+  challengeCard.classList.add('hidden');
+  challengePlayfield.innerHTML = '';
+}
+
+async function completeChallenge(action: CareAction) {
+  clearChallenge();
+  await runRoutine(action);
+}
+
+function startChallenge(action: CareAction) {
+  if (isFinaleRunning) return;
+  void audio.start();
+  clearChallenge();
+  activeChallenge = action;
+  setActiveButton(action);
+  challengeCard.classList.remove('hidden');
+  challengeLabel.textContent = 'Active routine';
+
+  if (action === 'feed') {
+    buildFeedChallenge();
+  } else if (action === 'play') {
+    buildPlayChallenge();
+  } else if (action === 'comfort') {
+    buildComfortChallenge();
+  } else {
+    buildRestChallenge();
+  }
+}
+
+function buildFeedChallenge() {
+  challengeTitle.textContent = 'Guide the treat';
+  challengeCopy.textContent = 'Drag the treat into the bowl without dropping it early.';
+  challengePlayfield.innerHTML = `
+    <div class="drop-zone" id="drop-zone">bowl</div>
+    <button class="treat-token" id="treat-token">treat</button>
+  `;
+
+  const token = document.querySelector<HTMLButtonElement>('#treat-token')!;
+  const zone = document.querySelector<HTMLDivElement>('#drop-zone')!;
+  let dragging = false;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  token.addEventListener('pointerdown', (event) => {
+    dragging = true;
+    token.setPointerCapture(event.pointerId);
+    const rect = token.getBoundingClientRect();
+    offsetX = event.clientX - rect.left;
+    offsetY = event.clientY - rect.top;
+    token.classList.add('dragging');
+  });
+
+  token.addEventListener('pointermove', (event) => {
+    if (!dragging) return;
+    const field = challengePlayfield.getBoundingClientRect();
+    token.style.left = `${event.clientX - field.left - offsetX}px`;
+    token.style.top = `${event.clientY - field.top - offsetY}px`;
+  });
+
+  token.addEventListener('pointerup', async (event) => {
+    if (!dragging) return;
+    dragging = false;
+    token.releasePointerCapture(event.pointerId);
+    token.classList.remove('dragging');
+    const tokenRect = token.getBoundingClientRect();
+    const zoneRect = zone.getBoundingClientRect();
+    const centerX = tokenRect.left + tokenRect.width / 2;
+    const centerY = tokenRect.top + tokenRect.height / 2;
+    const inside =
+      centerX >= zoneRect.left && centerX <= zoneRect.right && centerY >= zoneRect.top && centerY <= zoneRect.bottom;
+
+    if (inside) {
+      zone.classList.add('success');
+      await completeChallenge('feed');
+    } else {
+      say('Almost. The bowl is patient. Try again.', 'soft');
+      token.style.left = '';
+      token.style.top = '';
+    }
+  });
+}
+
+function buildPlayChallenge() {
+  challengeTitle.textContent = 'Catch the glint';
+  challengeCopy.textContent = 'Click the moving glint four times before Mochi loses interest.';
+  challengePlayfield.innerHTML = `
+    <div class="score-row"><span id="play-score">0 / 4</span><span id="play-time">8.0</span></div>
+    <button class="glint-target" id="glint-target" aria-label="Moving glint"></button>
+  `;
+
+  const target = document.querySelector<HTMLButtonElement>('#glint-target')!;
+  const scoreEl = document.querySelector<HTMLSpanElement>('#play-score')!;
+  const timeEl = document.querySelector<HTMLSpanElement>('#play-time')!;
+  let score = 0;
+  let remaining = 80;
+
+  function moveTarget() {
+    target.style.left = `${12 + Math.random() * 68}%`;
+    target.style.top = `${30 + Math.random() * 48}%`;
+  }
+
+  target.addEventListener('click', async () => {
+    score += 1;
+    scoreEl.textContent = `${score} / 4`;
+    audio.cue('spark');
+    if (score >= 4) {
+      await completeChallenge('play');
+      return;
+    }
+    moveTarget();
+  });
+
+  challengeTimer = window.setInterval(() => {
+    remaining -= 1;
+    timeEl.textContent = (remaining / 10).toFixed(1);
+    if (remaining <= 0) {
+      stopChallengeTimer();
+      say('The glint got away. Mochi is watching where it went.', 'shift');
+      buildPlayChallenge();
+    }
+  }, 100);
+
+  moveTarget();
+}
+
+function buildComfortChallenge() {
+  challengeTitle.textContent = 'Keep steady';
+  challengeCopy.textContent = 'Hold gently until the meter fills. Letting go starts it over.';
+  challengePlayfield.innerHTML = `
+    <button class="hold-pad" id="hold-pad">hold</button>
+    <div class="hold-meter"><div id="hold-fill"></div></div>
+  `;
+
+  const pad = document.querySelector<HTMLButtonElement>('#hold-pad')!;
+  const fill = document.querySelector<HTMLDivElement>('#hold-fill')!;
+  let progress = 0;
+
+  function reset() {
+    progress = 0;
+    fill.style.width = '0%';
+    stopChallengeTimer();
+  }
+
+  pad.addEventListener('pointerdown', () => {
+    reset();
+    challengeTimer = window.setInterval(async () => {
+      progress += 4;
+      fill.style.width = `${progress}%`;
+      if (progress >= 100) {
+        await completeChallenge('comfort');
+      }
+    }, 70);
+  });
+
+  pad.addEventListener('pointerup', reset);
+  pad.addEventListener('pointerleave', reset);
+}
+
+function buildRestChallenge() {
+  challengeTitle.textContent = 'Settle the room';
+  challengeCopy.textContent = 'Click settle while the pulse is inside the quiet band.';
+  challengePlayfield.innerHTML = `
+    <div class="timing-bar">
+      <div class="quiet-band"></div>
+      <div class="timing-pulse" id="timing-pulse"></div>
+    </div>
+    <button class="settle-button" id="settle-button">Settle</button>
+  `;
+
+  const pulse = document.querySelector<HTMLDivElement>('#timing-pulse')!;
+  const button = document.querySelector<HTMLButtonElement>('#settle-button')!;
+  let t = 0;
+  let x = 0;
+
+  challengeTimer = window.setInterval(() => {
+    t += 0.055;
+    x = 50 + Math.sin(t) * 47;
+    pulse.style.left = `${x}%`;
+  }, 16);
+
+  button.addEventListener('click', async () => {
+    if (x >= 42 && x <= 58) {
+      await completeChallenge('rest');
+      return;
+    }
+
+    say('Too sudden. Let the room slow down first.', 'low');
+  });
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -219,8 +445,27 @@ async function runFinale() {
   isFinaleRunning = false;
 }
 
+function handleScenePick(action: CareAction) {
+  if (action === 'observe') {
+    void runRoutine(action);
+    return;
+  }
+
+  if (activeChallenge === action) {
+    say('Use the active routine panel to finish it.', 'soft');
+    return;
+  }
+
+  startChallenge(action);
+}
+
 document.querySelectorAll<HTMLButtonElement>('[data-action]').forEach((button) => {
-  button.addEventListener('click', () => runRoutine(button.dataset.action as CareAction));
+  button.addEventListener('click', () => startChallenge(button.dataset.action as CareAction));
+});
+
+document.querySelector<HTMLButtonElement>('#challenge-cancel')?.addEventListener('click', () => {
+  clearChallenge();
+  say('We can do another routine.', 'soft');
 });
 
 document.querySelector<HTMLButtonElement>('#minimize')?.addEventListener('click', () => window.mochi.window.minimize());
@@ -230,6 +475,7 @@ document.querySelector<HTMLButtonElement>('#reset')?.addEventListener('click', a
   await window.mochi.overlay.hide();
   await persist();
   notesEl.innerHTML = '';
+  clearChallenge();
   say('The room is ready.', 'soft');
   render();
 });
@@ -239,7 +485,7 @@ async function init() {
   state = hydrateState(saved);
   await window.mochi.settings.set({ companionMode: settings?.companionMode ?? true });
 
-  scene = new CompanionScene(mount, runRoutine);
+  scene = new CompanionScene(mount, handleScenePick);
   scene.update();
   render();
   say(state.story.aftermathStatus === 'returned' ? 'You still remember the routine.' : pickIdleLine(state), 'soft');
