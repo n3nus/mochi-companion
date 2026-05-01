@@ -172,6 +172,15 @@ export function applyTimeDrift(state: GameState): GameState {
   next.pet.comfort = clamp(next.pet.comfort - 1);
   next.pet.energy = clamp(next.pet.energy - (next.story.act === 3 ? 2 : 1));
 
+  if (
+    driftAt - next.pet.lastInteractionAt > 11000 &&
+    next.pet.currentBehavior !== 'exit' &&
+    next.pet.currentBehavior !== 'follow' &&
+    next.pet.currentBehavior !== 'stare'
+  ) {
+    next.pet.currentBehavior = 'idle';
+  }
+
   if (Date.now() - next.pet.lastInteractionAt > 25000) {
     next.pet.stress = clamp(next.pet.stress + (next.story.act === 1 ? 2 : 6));
     next.story.ritualCounters.ignore += 1;

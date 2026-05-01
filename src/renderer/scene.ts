@@ -5,6 +5,15 @@ import type { CareAction, GameState, PetBehavior } from './types';
 type PickHandler = (action: CareAction) => void;
 export type SceneRoom = 'room' | 'garden';
 
+interface LegRig {
+  root: THREE.Group;
+  lower: THREE.Mesh;
+  paw: THREE.Mesh;
+  base: THREE.Vector3;
+  phase: number;
+  front: boolean;
+}
+
 export class CompanionScene {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -19,6 +28,8 @@ export class CompanionScene {
   private readonly eyes: THREE.Mesh[] = [];
   private readonly ears: THREE.Mesh[] = [];
   private readonly paws: THREE.Mesh[] = [];
+  private readonly legRigs: LegRig[] = [];
+  private readonly tailJoints: THREE.Group[] = [];
   private readonly interactives: THREE.Object3D[] = [];
   private readonly roomObjects: THREE.Object3D[] = [];
   private readonly gardenObjects: THREE.Object3D[] = [];
@@ -31,6 +42,7 @@ export class CompanionScene {
   private behavior: PetBehavior = 'idle';
   private state: GameState | null = null;
   private room: SceneRoom = 'room';
+  private nextWanderAt = 0;
 
   constructor(private readonly mount: HTMLElement, private readonly onPick: PickHandler) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -59,6 +71,7 @@ export class CompanionScene {
 
   setState(state: GameState) {
     this.state = state;
+    const previousBehavior = this.behavior;
     this.behavior = state.pet.currentBehavior;
     const act = state.story.act;
 
@@ -78,7 +91,10 @@ export class CompanionScene {
     if (this.behavior === 'stare' || this.behavior === 'follow') this.target.set(0, 0, -0.35);
     if (this.behavior === 'refuse') this.target.set(-0.2, 0, -0.85);
 
-    this.actionPulse = 1;
+    if (previousBehavior !== this.behavior) {
+      this.actionPulse = 1;
+      this.nextWanderAt = this.clock.getElapsedTime() + 1.8;
+    }
   }
 
   startExit() {
@@ -89,6 +105,7 @@ export class CompanionScene {
   update() {
     const elapsed = this.clock.getElapsedTime();
     const delta = this.clock.getDelta();
+    this.updateIdleTarget(elapsed);
     this.actionPulse = Math.max(0, this.actionPulse - delta * 1.8);
     const beforeMove = this.previousPetPosition.copy(this.pet.position);
 
@@ -132,6 +149,13 @@ export class CompanionScene {
     this.tail.rotation.z = pose.tailCurl;
     this.tail.rotation.y = pose.tailYaw;
     this.tail.rotation.x = pose.tailLift;
+    this.tailJoints.forEach((joint, index) => {
+      const depth = index / Math.max(1, this.tailJoints.length - 1);
+      joint.rotation.z =
+        (joint.userData.baseZ as number) + pose.tailCurl * (0.22 + depth * 0.34) + Math.sin(elapsed * 2.1 + index) * 0.035;
+      joint.rotation.y = pose.tailYaw * (0.28 + depth * 0.22);
+      joint.rotation.x = pose.tailLift * (0.18 + depth * 0.18);
+    });
     this.eyes.forEach((eye, index) => {
       eye.scale.y = pose.eyeOpen;
       eye.scale.x = pose.pupilScale;
@@ -140,8 +164,18 @@ export class CompanionScene {
     this.ears.forEach((ear, index) => {
       ear.rotation.z = (index === 0 ? 0.26 + pose.earLeft : -0.26 + pose.earRight);
     });
-    this.paws.forEach((paw, index) => {
-      paw.position.y = 0.18 + pose.pawLift[index];
+    const legEnergy = Math.min(1, velocity * 2.4 + (this.behavior === 'play' ? 0.45 : 0));
+    this.legRigs.forEach((leg, index) => {
+      const lift = pose.pawLift[index] ?? 0;
+      const step = Math.sin(elapsed * (this.behavior === 'play' ? 8.8 : 6.4) + leg.phase) * legEnergy;
+      const side = leg.base.z < 0 ? -1 : 1;
+      leg.root.position.y = leg.base.y + lift * 0.72;
+      leg.root.position.x = leg.base.x + step * (leg.front ? 0.04 : 0.035);
+      leg.root.position.z = leg.base.z + side * Math.abs(step) * 0.018;
+      leg.root.rotation.x = step * (leg.front ? 0.38 : 0.31);
+      leg.root.rotation.z = side * (0.05 + lift * 0.22);
+      leg.lower.rotation.x = -0.26 - Math.max(0, step) * 0.18 + lift * 0.95;
+      leg.paw.rotation.x = -step * 0.18 - lift * 0.65;
     });
     if (this.shadow) {
       this.shadow.position.x = this.pet.position.x;
@@ -190,6 +224,17 @@ export class CompanionScene {
     if (this.behavior === 'approach') return 0.055;
     if (this.behavior === 'sleep') return 0.012;
     return 0.035;
+  }
+
+  private updateIdleTarget(elapsed: number) {
+    if (this.behavior !== 'idle' || elapsed < this.nextWanderAt || this.exitProgress > 0) return;
+
+    const xMin = this.room === 'garden' ? -2.25 : -2.05;
+    const xMax = this.room === 'garden' ? 1.1 : 2.0;
+    const zMin = this.room === 'garden' ? -1.0 : -0.75;
+    const zMax = this.room === 'garden' ? 0.95 : 1.25;
+    this.target.set(THREE.MathUtils.lerp(xMin, xMax, Math.random()), 0, THREE.MathUtils.lerp(zMin, zMax, Math.random()));
+    this.nextWanderAt = elapsed + 3.4 + Math.random() * 3.2;
   }
 
   private buildRoom() {
@@ -364,124 +409,174 @@ export class CompanionScene {
   }
 
   private buildPet() {
-    const fur = new THREE.MeshStandardMaterial({ color: '#8f8175', roughness: 0.74 });
-    const chest = new THREE.MeshStandardMaterial({ color: '#d8c7b6', roughness: 0.76 });
-    const shade = new THREE.MeshStandardMaterial({ color: '#5f564f', roughness: 0.8 });
-    const stripe = new THREE.MeshStandardMaterial({ color: '#3f3936', roughness: 0.86 });
-    const eyeMat = new THREE.MeshStandardMaterial({ color: '#11131a', roughness: 0.35 });
+    const fur = new THREE.MeshStandardMaterial({ color: '#8b7b6d', roughness: 0.82, metalness: 0.01 });
+    const furWarm = new THREE.MeshStandardMaterial({ color: '#a39180', roughness: 0.84, metalness: 0.01 });
+    const chest = new THREE.MeshStandardMaterial({ color: '#d8c7b6', roughness: 0.79 });
+    const shade = new THREE.MeshStandardMaterial({ color: '#5e554d', roughness: 0.86 });
+    const stripe = new THREE.MeshStandardMaterial({ color: '#37312d', roughness: 0.9 });
+    const innerEar = new THREE.MeshStandardMaterial({ color: '#c99d9b', roughness: 0.78 });
+    const irisMat = new THREE.MeshStandardMaterial({ color: '#9fb66a', roughness: 0.38, emissive: '#18220d', emissiveIntensity: 0.18 });
+    const pupilMat = new THREE.MeshStandardMaterial({ color: '#07080a', roughness: 0.24 });
+    const noseMat = new THREE.MeshStandardMaterial({ color: '#7b4c4c', roughness: 0.58 });
+    const whiskerMat = new THREE.MeshBasicMaterial({ color: '#eee2d2' });
+
+    const ellipsoid = (
+      parent: THREE.Group,
+      material: THREE.Material,
+      position: THREE.Vector3,
+      scale: THREE.Vector3,
+      segments = 36
+    ) => {
+      const mesh = new THREE.Mesh(new THREE.SphereGeometry(1, segments, Math.max(14, Math.floor(segments * 0.55))), material);
+      mesh.position.copy(position);
+      mesh.scale.copy(scale);
+      mesh.castShadow = true;
+      mesh.receiveShadow = true;
+      parent.add(mesh);
+      return mesh;
+    };
 
     this.shadow = new THREE.Mesh(
-      new THREE.CircleGeometry(0.74, 40),
-      new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.18, depthWrite: false })
+      new THREE.CircleGeometry(0.92, 48),
+      new THREE.MeshBasicMaterial({ color: '#000000', transparent: true, opacity: 0.22, depthWrite: false })
     );
     this.shadow.rotation.x = -Math.PI / 2;
-    this.shadow.position.set(0, 0.004, 0.1);
+    this.shadow.position.set(0, 0.006, 0.08);
     this.scene.add(this.shadow);
 
-    const body = new THREE.Mesh(new THREE.SphereGeometry(0.54, 40, 24), fur);
-    body.scale.set(1.58, 0.72, 0.78);
-    body.position.set(0, 0.56, -0.05);
-    body.castShadow = true;
-    this.bodyCore.add(body);
-
-    const chestPatch = new THREE.Mesh(new THREE.SphereGeometry(0.3, 24, 16), chest);
-    chestPatch.scale.set(0.86, 0.58, 0.24);
-    chestPatch.position.set(0, 0.56, 0.42);
-    chestPatch.castShadow = true;
-    this.bodyCore.add(chestPatch);
-
-    const haunch = new THREE.Mesh(new THREE.SphereGeometry(0.35, 24, 16), shade);
-    haunch.scale.set(1.25, 0.82, 0.92);
-    haunch.position.set(-0.34, 0.44, -0.34);
-    haunch.castShadow = true;
-    this.bodyCore.add(haunch);
+    ellipsoid(this.bodyCore, fur, new THREE.Vector3(-0.08, 0.58, 0), new THREE.Vector3(0.92, 0.42, 0.36), 44);
+    ellipsoid(this.bodyCore, furWarm, new THREE.Vector3(0.42, 0.61, 0.03), new THREE.Vector3(0.42, 0.34, 0.34), 34);
+    ellipsoid(this.bodyCore, shade, new THREE.Vector3(-0.55, 0.57, -0.02), new THREE.Vector3(0.5, 0.38, 0.36), 34);
+    ellipsoid(this.bodyCore, chest, new THREE.Vector3(0.34, 0.53, 0.34), new THREE.Vector3(0.32, 0.22, 0.1), 28);
     this.pet.add(this.bodyCore);
 
-    const shoulder = new THREE.Mesh(new THREE.SphereGeometry(0.38, 24, 16), fur);
-    shoulder.scale.set(1, 0.78, 0.82);
-    shoulder.position.set(0.48, 0.55, 0.12);
-    shoulder.castShadow = true;
-    this.bodyCore.add(shoulder);
-
-    for (const x of [-0.36, -0.12, 0.12, 0.36]) {
-      const bodyStripe = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.31, 0.012), stripe);
-      bodyStripe.position.set(x, 0.74, 0.42);
-      bodyStripe.rotation.z = x * 0.7;
+    for (const [x, z, roll, length] of [
+      [-0.58, 0.28, -0.5, 0.24],
+      [-0.34, 0.32, -0.22, 0.28],
+      [-0.08, 0.34, 0.05, 0.3],
+      [0.2, 0.31, 0.28, 0.24],
+      [-0.42, -0.3, 0.28, 0.18],
+      [0.08, -0.31, -0.22, 0.2]
+    ] as const) {
+      const bodyStripe = new THREE.Mesh(new THREE.CapsuleGeometry(0.017, length, 6, 10), stripe);
+      bodyStripe.position.set(x, 0.87, z);
+      bodyStripe.rotation.z = roll;
+      bodyStripe.rotation.x = 0.18;
       this.bodyCore.add(bodyStripe);
     }
 
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.38, 36, 20), fur);
-    head.position.set(0, 0, 0.04);
-    head.scale.set(1.02, 0.9, 0.96);
-    head.castShadow = true;
-    this.head.position.set(0.42, 1.03, 0.16);
-    this.head.add(head);
+    const neck = ellipsoid(this.pet, furWarm, new THREE.Vector3(0.56, 0.82, 0.08), new THREE.Vector3(0.24, 0.22, 0.2), 24);
+    neck.rotation.z = -0.12;
 
-    const muzzle = new THREE.Mesh(new THREE.SphereGeometry(0.15, 20, 12), chest);
-    muzzle.position.set(0, -0.08, 0.35);
-    muzzle.scale.set(1.45, 0.62, 0.72);
-    this.head.add(muzzle);
+    this.head.position.set(0.78, 0.97, 0.18);
+    ellipsoid(this.head, furWarm, new THREE.Vector3(0, 0, 0.02), new THREE.Vector3(0.38, 0.32, 0.34), 44);
+    ellipsoid(this.head, chest, new THREE.Vector3(-0.1, -0.08, 0.28), new THREE.Vector3(0.16, 0.12, 0.1), 24);
+    ellipsoid(this.head, chest, new THREE.Vector3(0.1, -0.08, 0.28), new THREE.Vector3(0.16, 0.12, 0.1), 24);
+    ellipsoid(this.head, chest, new THREE.Vector3(0, -0.16, 0.28), new THREE.Vector3(0.16, 0.09, 0.08), 20);
 
-    for (const x of [-0.18, 0, 0.18]) {
-      const mark = new THREE.Mesh(new THREE.BoxGeometry(0.032, 0.15, 0.012), stripe);
-      mark.position.set(x, 0.2, 0.39);
-      mark.rotation.z = x * 1.2;
+    for (const [x, roll] of [
+      [-0.14, 0.28],
+      [0, 0],
+      [0.14, -0.28]
+    ] as const) {
+      const mark = new THREE.Mesh(new THREE.CapsuleGeometry(0.014, 0.16, 5, 8), stripe);
+      mark.position.set(x, 0.2, 0.31);
+      mark.rotation.z = roll;
+      mark.rotation.x = 0.1;
       this.head.add(mark);
     }
 
     for (const x of [-0.28, 0.28]) {
-      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.36, 4), fur);
-      ear.position.set(x, 0.34, -0.02);
-      ear.rotation.z = x < 0 ? 0.35 : -0.35;
-      ear.rotation.y = Math.PI / 4;
+      const ear = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.38, 4), fur);
+      ear.position.set(x, 0.33, 0.02);
+      ear.scale.z = 0.74;
+      ear.rotation.z = x < 0 ? 0.32 : -0.32;
+      ear.rotation.y = x < 0 ? -0.18 : 0.18;
       ear.castShadow = true;
+      const inner = new THREE.Mesh(new THREE.ConeGeometry(0.088, 0.24, 4), innerEar);
+      inner.position.set(0, -0.015, 0.025);
+      inner.scale.z = 0.55;
+      ear.add(inner);
       this.ears.push(ear);
       this.head.add(ear);
     }
 
     for (const x of [-0.15, 0.15]) {
-      const eye = new THREE.Mesh(new THREE.SphereGeometry(0.052, 18, 12), eyeMat);
-      eye.position.set(x, 0.03, 0.39);
-      this.eyes.push(eye);
-      this.head.add(eye);
+      const iris = new THREE.Mesh(new THREE.SphereGeometry(0.071, 20, 12), irisMat);
+      iris.position.set(x, 0.035, 0.337);
+      iris.scale.set(1, 1.12, 0.26);
+      this.head.add(iris);
+      const pupil = new THREE.Mesh(new THREE.SphereGeometry(0.032, 16, 10), pupilMat);
+      pupil.position.set(x, 0.035, 0.382);
+      pupil.scale.set(0.7, 1.45, 0.22);
+      this.eyes.push(pupil);
+      this.head.add(pupil);
+      const glint = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 6), new THREE.MeshBasicMaterial({ color: '#fff7df' }));
+      glint.position.set(x - 0.018, 0.058, 0.403);
+      this.head.add(glint);
     }
 
-    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.045, 16, 10), new THREE.MeshStandardMaterial({ color: '#f0a2b5' }));
-    nose.position.set(0, -0.09, 0.5);
-    nose.scale.set(1.15, 0.75, 0.65);
+    const nose = new THREE.Mesh(new THREE.SphereGeometry(0.045, 18, 10), noseMat);
+    nose.position.set(0, -0.08, 0.41);
+    nose.scale.set(1.05, 0.72, 0.56);
     this.head.add(nose);
+
+    for (const side of [-1, 1]) {
+      for (let i = 0; i < 3; i += 1) {
+        const whisker = new THREE.Mesh(new THREE.BoxGeometry(0.34 - i * 0.035, 0.006, 0.006), whiskerMat);
+        whisker.position.set(side * (0.26 + i * 0.015), -0.085 - i * 0.022, 0.405);
+        whisker.rotation.z = side * (0.08 + i * 0.095);
+        whisker.rotation.y = side * -0.05;
+        this.head.add(whisker);
+      }
+    }
     this.pet.add(this.head);
 
-    for (let i = 0; i < 5; i += 1) {
-      const segment = new THREE.Mesh(new THREE.CapsuleGeometry(0.06 - i * 0.004, 0.24, 8, 14), i % 2 ? shade : fur);
-      segment.position.set(-0.64 - i * 0.13, 0.58 + i * 0.08, -0.16);
-      segment.rotation.z = Math.PI / 2.3 - i * 0.18;
-      segment.rotation.y = -0.24;
+    this.tail.position.set(-0.88, 0.62, -0.04);
+    for (let i = 0; i < 8; i += 1) {
+      const joint = new THREE.Group();
+      const radius = 0.07 - i * 0.004;
+      const segment = new THREE.Mesh(new THREE.CapsuleGeometry(radius, 0.18, 8, 14), i % 2 ? shade : fur);
+      segment.position.set(-0.075, 0, 0);
+      segment.rotation.z = Math.PI / 2;
       segment.castShadow = true;
-      this.tail.add(segment);
+      joint.position.set(-i * 0.112, i * 0.055, i % 2 ? 0.012 : -0.006);
+      joint.userData.baseZ = 0.12 - i * 0.035;
+      joint.add(segment);
+      this.tailJoints.push(joint);
+      this.tail.add(joint);
     }
     this.pet.add(this.tail);
 
-    for (const [x, z, scale] of [
-      [0.34, 0.28, 1.0],
-      [0.62, 0.2, 1.0],
-      [-0.42, -0.28, 1.12],
-      [-0.12, -0.32, 1.12]
-    ] as const) {
-      const paw = new THREE.Mesh(new THREE.SphereGeometry(0.13, 18, 12), shade);
-      paw.position.set(x, 0.18, z);
-      paw.scale.set(0.82 * scale, 0.78, 0.62);
+    const createLeg = (base: THREE.Vector3, front: boolean, phase: number) => {
+      const root = new THREE.Group();
+      root.position.copy(base);
+      const upper = new THREE.Mesh(new THREE.CapsuleGeometry(front ? 0.058 : 0.066, front ? 0.32 : 0.35, 8, 14), shade);
+      upper.position.set(0, -0.08, 0);
+      upper.rotation.x = front ? -0.08 : 0.06;
+      upper.castShadow = true;
+      root.add(upper);
+
+      const lower = new THREE.Mesh(new THREE.CapsuleGeometry(front ? 0.045 : 0.052, front ? 0.28 : 0.3, 8, 14), shade);
+      lower.position.set(front ? 0.025 : -0.02, -0.3, 0.012);
+      lower.castShadow = true;
+      root.add(lower);
+
+      const paw = new THREE.Mesh(new THREE.SphereGeometry(1, 18, 10), furWarm);
+      paw.position.set(front ? 0.045 : -0.02, -0.48, 0.026);
+      paw.scale.set(front ? 0.13 : 0.15, 0.055, 0.095);
       paw.castShadow = true;
       this.paws.push(paw);
-      this.pet.add(paw);
-    }
+      root.add(paw);
 
-    for (const x of [-0.36, 0.36]) {
-      const whisker = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.012, 0.012), chest);
-      whisker.position.set(x + 0.42, 0.96, 0.5);
-      whisker.rotation.z = x < 0 ? 0.12 : -0.12;
-      this.pet.add(whisker);
-    }
+      this.legRigs.push({ root, lower, paw, base: base.clone(), phase, front });
+      this.pet.add(root);
+    };
+
+    createLeg(new THREE.Vector3(0.5, 0.5, 0.28), true, 0);
+    createLeg(new THREE.Vector3(0.58, 0.5, -0.26), true, Math.PI);
+    createLeg(new THREE.Vector3(-0.58, 0.5, 0.26), false, Math.PI);
+    createLeg(new THREE.Vector3(-0.48, 0.5, -0.28), false, 0);
 
     this.scene.add(this.pet);
   }
