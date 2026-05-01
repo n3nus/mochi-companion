@@ -3,6 +3,7 @@ import { MochiMotion } from './motion';
 import type { CareAction, GameState, PetBehavior } from './types';
 
 type PickHandler = (action: CareAction) => void;
+export type SceneRoom = 'room' | 'garden';
 
 export class CompanionScene {
   private readonly renderer: THREE.WebGLRenderer;
@@ -27,6 +28,7 @@ export class CompanionScene {
   private target = new THREE.Vector3(0, 0, 0);
   private behavior: PetBehavior = 'idle';
   private state: GameState | null = null;
+  private room: SceneRoom = 'room';
 
   constructor(private readonly mount: HTMLElement, private readonly onPick: PickHandler) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -40,7 +42,7 @@ export class CompanionScene {
     this.camera.lookAt(0, 1.1, 0);
 
     this.buildRoom();
-    this.buildPet();
+    this.setRoom('room');
     this.resize();
     this.mount.addEventListener('pointerdown', this.handlePointer);
     window.addEventListener('resize', this.resize);
@@ -57,8 +59,14 @@ export class CompanionScene {
     this.behavior = state.pet.currentBehavior;
     const act = state.story.act;
 
-    this.scene.background = new THREE.Color(act === 1 ? '#171b22' : act === 2 ? '#13151b' : '#0d0d12');
-    this.scene.fog = new THREE.Fog(act === 1 ? '#171b22' : '#0b0b10', act === 1 ? 12 : 7, act === 1 ? 22 : 14);
+    this.scene.background = new THREE.Color(
+      this.room === 'garden' ? (act === 1 ? '#17231b' : '#101812') : act === 1 ? '#171b22' : act === 2 ? '#13151b' : '#0d0d12'
+    );
+    this.scene.fog = new THREE.Fog(
+      this.room === 'garden' ? '#17231b' : act === 1 ? '#171b22' : '#0b0b10',
+      this.room === 'garden' ? 7 : act === 1 ? 12 : 7,
+      this.room === 'garden' ? 16 : act === 1 ? 22 : 14
+    );
 
     if (this.behavior === 'eat') this.target.set(-1.9, 0, 0.7);
     if (this.behavior === 'play') this.target.set(1.7, 0, 0.2);
@@ -151,6 +159,16 @@ export class CompanionScene {
     requestAnimationFrame(() => this.update());
   }
 
+  setRoom(room: SceneRoom) {
+    this.room = room;
+    this.camera.position.set(room === 'room' ? 0 : -0.2, room === 'room' ? 3.4 : 3.8, room === 'room' ? 8.4 : 7.4);
+    this.camera.lookAt(room === 'room' ? 0 : -1.2, room === 'room' ? 1.1 : 0.65, room === 'room' ? 0 : -0.55);
+    this.interactives.forEach((object) => {
+      const action = object.userData.action as CareAction;
+      object.visible = room === 'garden' ? action === 'tend' : action !== 'tend';
+    });
+  }
+
   private motionSpeed() {
     if (this.behavior === 'play') return 5.8;
     if (this.behavior === 'approach' || this.behavior === 'eat') return 3.2;
@@ -174,6 +192,16 @@ export class CompanionScene {
     floor.position.set(0, -0.08, 0);
     floor.receiveShadow = true;
     this.scene.add(floor);
+
+    const gardenGround = new THREE.Mesh(
+      new THREE.BoxGeometry(7.2, 0.12, 4.8),
+      new THREE.MeshStandardMaterial({ color: '#1f3828', roughness: 0.94 })
+    );
+    gardenGround.position.set(0, -0.015, 0);
+    gardenGround.receiveShadow = true;
+    gardenGround.userData.action = 'tend';
+    this.interactives.push(gardenGround);
+    this.scene.add(gardenGround);
 
     const back = new THREE.Mesh(new THREE.BoxGeometry(7.2, 3.8, 0.18), wallMat);
     back.position.set(0, 1.85, -2.35);
@@ -210,6 +238,8 @@ export class CompanionScene {
     this.addInteractive('comfort', new THREE.Vector3(-0.05, 0.22, 1.5), '#8ccfc0', 'brush');
     this.addInteractive('rest', new THREE.Vector3(2.25, 0.13, 1.05), '#7177a8', 'bed');
     this.addInteractive('tend', new THREE.Vector3(-2.55, 0.18, -0.75), '#8c674f', 'garden');
+    this.addInteractive('tend', new THREE.Vector3(-1.25, 0.18, -0.55), '#8c674f', 'garden');
+    this.addInteractive('tend', new THREE.Vector3(0.05, 0.18, -0.85), '#8c674f', 'garden');
 
     const light = new THREE.DirectionalLight('#ffdcb6', 2.15);
     light.position.set(2.7, 4.7, 3.5);

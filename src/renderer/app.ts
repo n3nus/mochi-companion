@@ -1,7 +1,7 @@
 import './styles/main.css';
 import { RoomAudio } from './audio';
 import { sceneEvents, pickActionLine, pickIdleLine } from './content/lines';
-import { CompanionScene } from './scene';
+import { CompanionScene, type SceneRoom } from './scene';
 import { applyCareAction, applyTimeDrift, buyItem, collectYield, hydrateState, resetState } from './state';
 import type { AudioCue } from './audio';
 import type { CareAction, GameState, PetBehavior, SceneEvent } from './types';
@@ -29,9 +29,44 @@ appRoot.innerHTML = `
             <p class="eyebrow">Room routine</p>
             <h1 id="act-title">Mochi's room</h1>
           </div>
-          <button class="ghost-button" id="reset">Reset</button>
+          <div class="toolbar-actions">
+            <div class="room-tabs" role="tablist" aria-label="Rooms">
+              <button class="room-tab active" data-room="room">Room</button>
+              <button class="room-tab" data-room="garden">Garden</button>
+            </div>
+            <button class="ghost-button" id="reset">Reset</button>
+          </div>
         </div>
         <div id="scene-mount"></div>
+        <div class="cat-stage" id="cat-stage" aria-hidden="true">
+          <div class="cat-shadow"></div>
+          <div class="cat-sprite">
+            <div class="cat-tail-css"></div>
+            <div class="cat-body-css">
+              <span class="body-stripe s1"></span>
+              <span class="body-stripe s2"></span>
+              <span class="body-stripe s3"></span>
+              <div class="cat-leg front"></div>
+              <div class="cat-leg back"></div>
+              <div class="cat-chest-css"></div>
+            </div>
+            <div class="cat-head-css">
+              <div class="cat-ear-css left"><span></span></div>
+              <div class="cat-ear-css right"><span></span></div>
+              <span class="head-stripe h1"></span>
+              <span class="head-stripe h2"></span>
+              <span class="head-stripe h3"></span>
+              <div class="cat-eye-css left"></div>
+              <div class="cat-eye-css right"></div>
+              <div class="cat-muzzle-css"></div>
+              <div class="cat-nose-css"></div>
+              <span class="whisker w1"></span>
+              <span class="whisker w2"></span>
+              <span class="whisker w3"></span>
+              <span class="whisker w4"></span>
+            </div>
+          </div>
+        </div>
         <section class="challenge-card hidden" id="challenge-card">
           <div class="challenge-header">
             <div>
@@ -113,6 +148,7 @@ const petalsEl = document.querySelector<HTMLHeadingElement>('#petals')!;
 const inventoryEl = document.querySelector<HTMLDivElement>('#inventory')!;
 const gardenPriceEl = document.querySelector<HTMLSpanElement>('#garden-price')!;
 const collectButton = document.querySelector<HTMLButtonElement>('#collect')!;
+const catStage = document.querySelector<HTMLDivElement>('#cat-stage')!;
 
 const audio = new RoomAudio();
 let state = resetState();
@@ -120,6 +156,7 @@ let scene: CompanionScene;
 let isFinaleRunning = false;
 let activeChallenge: CareAction | null = null;
 let challengeTimer: number | null = null;
+let currentRoom: SceneRoom = 'room';
 
 function titleForAct(act: 1 | 2 | 3) {
   if (act === 1) return "Mochi's room";
@@ -142,15 +179,22 @@ function meter(label: string, value: number) {
 
 function render() {
   document.body.dataset.act = String(state.story.act);
+  document.body.dataset.room = currentRoom;
+  catStage.dataset.behavior = state.pet.currentBehavior;
+  catStage.dataset.act = String(state.story.act);
   document.body.classList.toggle('after-return', state.story.aftermathStatus === 'returned');
-  actTitleEl.textContent = titleForAct(state.story.act);
+  actTitleEl.textContent = currentRoom === 'garden' ? 'Pocket garden' : titleForAct(state.story.act);
   behaviorEl.textContent = formatBehavior(state.pet.currentBehavior);
   hintEl.textContent =
     state.story.finaleStatus === 'ready'
       ? 'The window is active. Keep following the routine.'
       : state.story.act === 1
-        ? 'Click an object in the room, or use a routine below.'
-        : 'Mochi notices repeated routines.';
+        ? currentRoom === 'garden'
+          ? 'Tend the garden beds, collect petals, and build supplies for the room.'
+          : 'Care happens here. Supplies come from the garden.'
+        : currentRoom === 'garden'
+          ? 'The garden is quiet. It should stay separate from the room.'
+          : 'Mochi notices repeated routines.';
 
   metersEl.innerHTML = [
     meter('Hunger', state.pet.hunger),
@@ -179,6 +223,10 @@ function render() {
   });
 
   scene?.setState(state);
+  scene?.setRoom(currentRoom);
+  document.querySelectorAll<HTMLButtonElement>('[data-room]').forEach((button) => {
+    button.classList.toggle('active', button.dataset.room === currentRoom);
+  });
 }
 
 function setActiveButton(action: CareAction | null) {
@@ -270,6 +318,12 @@ async function completeChallenge(action: CareAction) {
 
 function startChallenge(action: CareAction) {
   if (isFinaleRunning) return;
+  if (action === 'tend' && currentRoom !== 'garden') {
+    setRoom('garden');
+  }
+  if (action !== 'tend' && currentRoom !== 'room') {
+    setRoom('room');
+  }
   void audio.start();
   clearChallenge();
   activeChallenge = action;
@@ -546,8 +600,20 @@ function handleScenePick(action: CareAction) {
   startChallenge(action);
 }
 
+function setRoom(room: SceneRoom) {
+  currentRoom = room;
+  clearChallenge();
+  scene?.setRoom(room);
+  say(room === 'garden' ? 'The garden has its own air.' : 'The room is where Mochi waits.', 'soft');
+  render();
+}
+
 document.querySelectorAll<HTMLButtonElement>('[data-action]').forEach((button) => {
   button.addEventListener('click', () => startChallenge(button.dataset.action as CareAction));
+});
+
+document.querySelectorAll<HTMLButtonElement>('[data-room]').forEach((button) => {
+  button.addEventListener('click', () => setRoom(button.dataset.room as SceneRoom));
 });
 
 document.querySelector<HTMLButtonElement>('#challenge-cancel')?.addEventListener('click', () => {
