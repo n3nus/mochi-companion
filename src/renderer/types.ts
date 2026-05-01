@@ -1,4 +1,4 @@
-export type CareAction = 'feed' | 'play' | 'comfort' | 'rest' | 'observe' | 'ignore';
+export type CareAction = 'feed' | 'play' | 'comfort' | 'rest' | 'observe' | 'ignore' | 'tend';
 
 export type PetBehavior =
   | 'idle'
@@ -33,10 +33,21 @@ export interface StoryState {
   aftermathStatus: 'none' | 'returned';
 }
 
+export interface EconomyState {
+  petals: number;
+  gardenLevel: number;
+  uncollectedPetals: number;
+  food: number;
+  yarn: number;
+  softBrush: number;
+  lastYieldAt: number;
+}
+
 export interface GameState {
   version: 1;
   pet: PetState;
   story: StoryState;
+  economy: EconomyState;
   lastLineId?: string;
 }
 

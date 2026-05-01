@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { MochiMotion } from './motion';
 import type { CareAction, GameState, PetBehavior } from './types';
 
 type PickHandler = (action: CareAction) => void;
@@ -18,6 +19,8 @@ export class CompanionScene {
   private readonly ears: THREE.Mesh[] = [];
   private readonly paws: THREE.Mesh[] = [];
   private readonly interactives: THREE.Object3D[] = [];
+  private readonly motion = new MochiMotion();
+  private readonly previousPetPosition = new THREE.Vector3();
   private shadow!: THREE.Mesh;
   private actionPulse = 0;
   private exitProgress = 0;
@@ -76,6 +79,7 @@ export class CompanionScene {
     const elapsed = this.clock.getElapsedTime();
     const delta = this.clock.getDelta();
     this.actionPulse = Math.max(0, this.actionPulse - delta * 1.8);
+    const beforeMove = this.previousPetPosition.copy(this.pet.position);
 
     if (this.behavior === 'exit') {
       this.exitProgress = Math.min(1, this.exitProgress + delta * 0.18);
@@ -94,30 +98,39 @@ export class CompanionScene {
 
     const act = this.state?.story.act ?? 1;
     const wrongness = act === 1 ? 0 : act === 2 ? 0.25 : 0.55;
-    const breathe = Math.sin(elapsed * (1.5 + wrongness)) * (0.018 + wrongness * 0.025);
-    this.pet.scale.y = 1 + breathe - (this.behavior === 'sleep' ? 0.12 : 0);
-    this.pet.scale.x = 1 + this.actionPulse * 0.04 + (this.behavior === 'sleep' ? 0.1 : 0);
+    const velocity = beforeMove.distanceTo(this.pet.position) / Math.max(delta, 0.016);
+    const pose = this.motion.sample({
+      behavior: this.behavior,
+      act,
+      time: elapsed,
+      velocity: Math.min(1, velocity * 2.8),
+      attention: this.actionPulse
+    });
+
+    this.pet.position.y += pose.bodyY;
+    this.pet.scale.y = pose.bodySquashY - (this.behavior === 'sleep' ? 0.12 : 0);
+    this.pet.scale.x = pose.bodySquashX + this.actionPulse * 0.04 + (this.behavior === 'sleep' ? 0.1 : 0);
     this.pet.scale.z = 1 + (this.behavior === 'stare' ? wrongness * 0.08 : 0);
 
-    this.bodyCore.rotation.z = Math.sin(elapsed * 1.1) * 0.025;
-    this.head.rotation.x = this.behavior === 'eat' ? 0.24 + Math.sin(elapsed * 9) * 0.11 : this.behavior === 'sleep' ? 0.34 : 0;
-    this.head.rotation.z =
-      this.behavior === 'stare' || this.behavior === 'follow'
-        ? Math.sin(elapsed * 0.7) * 0.045
-        : Math.sin(elapsed * 1.4) * 0.025;
+    this.bodyCore.rotation.z = pose.bodyRoll;
+    this.bodyCore.rotation.x = pose.bodyPitch;
+    this.head.rotation.x = pose.headPitch;
+    this.head.rotation.y = pose.headYaw;
+    this.head.rotation.z = pose.headRoll;
 
-    this.tail.rotation.z = Math.sin(elapsed * (act === 3 ? 7 : this.behavior === 'play' ? 5 : 2.4)) * (act === 3 ? 0.45 : 0.22);
-    this.tail.rotation.y = Math.sin(elapsed * 1.8) * 0.12;
+    this.tail.rotation.z = pose.tailCurl;
+    this.tail.rotation.y = pose.tailYaw;
+    this.tail.rotation.x = pose.tailLift;
     this.eyes.forEach((eye, index) => {
-      eye.scale.y = this.behavior === 'sleep' ? 0.08 : Math.sin(elapsed * 2.8 + index) > 0.96 ? 0.08 : 1;
+      eye.scale.y = pose.eyeOpen;
+      eye.scale.x = pose.pupilScale;
       eye.position.x = (index === 0 ? -0.15 : 0.15) + Math.sin(elapsed * 0.9) * 0.018;
     });
     this.ears.forEach((ear, index) => {
-      ear.rotation.z = (index === 0 ? 0.26 : -0.26) + Math.sin(elapsed * 3.1 + index * 1.7) * 0.035;
+      ear.rotation.z = (index === 0 ? 0.26 + pose.earLeft : -0.26 + pose.earRight);
     });
     this.paws.forEach((paw, index) => {
-      const step = this.behavior === 'play' || this.behavior === 'approach' ? Math.sin(elapsed * 8 + index * Math.PI) * 0.045 : 0;
-      paw.position.y = 0.18 + Math.max(0, step);
+      paw.position.y = 0.18 + pose.pawLift[index];
     });
     if (this.shadow) {
       this.shadow.position.x = this.pet.position.x;
@@ -196,6 +209,7 @@ export class CompanionScene {
     this.addInteractive('play', new THREE.Vector3(1.65, 0.22, 0.15), '#bd5d64', 'ball');
     this.addInteractive('comfort', new THREE.Vector3(-0.05, 0.22, 1.5), '#8ccfc0', 'brush');
     this.addInteractive('rest', new THREE.Vector3(2.25, 0.13, 1.05), '#7177a8', 'bed');
+    this.addInteractive('tend', new THREE.Vector3(-2.65, 0.22, -0.75), '#79c8b7', 'garden');
 
     const light = new THREE.DirectionalLight('#ffdcb6', 2.15);
     light.position.set(2.7, 4.7, 3.5);
@@ -205,7 +219,7 @@ export class CompanionScene {
     this.scene.add(new THREE.HemisphereLight('#97b7ff', '#4c2f26', 1.25));
   }
 
-  private addInteractive(action: CareAction, position: THREE.Vector3, color: string, shape: 'bowl' | 'ball' | 'brush' | 'bed') {
+  private addInteractive(action: CareAction, position: THREE.Vector3, color: string, shape: 'bowl' | 'ball' | 'brush' | 'bed' | 'garden') {
     const material = new THREE.MeshStandardMaterial({ color, roughness: 0.58, metalness: 0.03 });
     let mesh: THREE.Mesh;
 
@@ -218,6 +232,12 @@ export class CompanionScene {
     } else if (shape === 'brush') {
       mesh = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.14, 0.2), material);
       mesh.rotation.z = -0.25;
+    } else if (shape === 'garden') {
+      mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.38, 0.48, 0.28, 6), material);
+      const sprout = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.46, 5), new THREE.MeshStandardMaterial({ color: '#9ee6c9', roughness: 0.7 }));
+      sprout.position.y = 0.34;
+      sprout.castShadow = true;
+      mesh.add(sprout);
     } else {
       mesh = new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.42, 0.18, 32), material);
     }

@@ -51,6 +51,11 @@ export const actionLines: Record<CareAction, Record<1 | 2 | 3, string[]>> = {
     1: ['I can wait.', 'Still here.'],
     2: ['You left the room with me in it.', 'I counted the seconds wrong on purpose.'],
     3: ['No.', 'I am done waiting.']
+  },
+  tend: {
+    1: ['The little garden likes your timing.', 'Petals today. Snacks later.'],
+    2: ['You are growing things for me now.', 'The garden remembers your hands too.'],
+    3: ['Keep harvesting. I know what hunger buys.', 'The petals open when the room is quiet.']
   }
 };
 

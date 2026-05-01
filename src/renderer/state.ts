@@ -15,6 +15,15 @@ export function createInitialState(): GameState {
       currentBehavior: 'idle',
       lastInteractionAt: now()
     },
+    economy: {
+      petals: 12,
+      gardenLevel: 1,
+      uncollectedPetals: 0,
+      food: 2,
+      yarn: 1,
+      softBrush: 1,
+      lastYieldAt: now()
+    },
     story: {
       act: 1,
       startedAt: now(),
@@ -25,7 +34,8 @@ export function createInitialState(): GameState {
         comfort: 0,
         rest: 0,
         observe: 0,
-        ignore: 0
+        ignore: 0,
+        tend: 0
       },
       sceneFlags: {},
       promiseFlags: {},
@@ -43,6 +53,7 @@ export function hydrateState(value: unknown): GameState {
     ...base,
     ...saved,
     pet: { ...base.pet, ...saved.pet },
+    economy: { ...base.economy, ...saved.economy },
     story: {
       ...base.story,
       ...saved.story,
@@ -64,7 +75,8 @@ function behaviorFor(action: CareAction): PetBehavior {
     comfort: 'approach',
     rest: 'sleep',
     observe: 'stare',
-    ignore: 'refuse'
+    ignore: 'refuse',
+    tend: 'approach'
   }[action] as PetBehavior;
 }
 
@@ -76,6 +88,7 @@ export function applyCareAction(state: GameState, action: CareAction): GameState
   next.pet.currentBehavior = behaviorFor(action);
 
   if (action === 'feed') {
+    next.economy.food = Math.max(0, next.economy.food - 1);
     next.pet.hunger = clamp(next.pet.hunger + 24);
     next.pet.trust = clamp(next.pet.trust + 5);
     next.pet.dependency = clamp(next.pet.dependency + 8);
@@ -83,6 +96,7 @@ export function applyCareAction(state: GameState, action: CareAction): GameState
   }
 
   if (action === 'play') {
+    next.economy.yarn = Math.max(0, next.economy.yarn - 1);
     next.pet.comfort = clamp(next.pet.comfort + 13);
     next.pet.energy = clamp(next.pet.energy - 13);
     next.pet.trust = clamp(next.pet.trust + 6);
@@ -91,6 +105,7 @@ export function applyCareAction(state: GameState, action: CareAction): GameState
   }
 
   if (action === 'comfort') {
+    next.economy.softBrush = Math.max(0, next.economy.softBrush - 1);
     next.pet.comfort = clamp(next.pet.comfort + 22);
     next.pet.trust = clamp(next.pet.trust + 4);
     next.pet.dependency = clamp(next.pet.dependency + 11);
@@ -118,11 +133,31 @@ export function applyCareAction(state: GameState, action: CareAction): GameState
     next.pet.dependency = clamp(next.pet.dependency + (next.story.act > 1 ? 8 : 2));
   }
 
+  if (action === 'tend') {
+    const earned = 4 + next.economy.gardenLevel * 2;
+    next.economy.petals += earned;
+    next.pet.energy = clamp(next.pet.energy - 5);
+    next.pet.trust = clamp(next.pet.trust + 2);
+    next.pet.stress = clamp(next.pet.stress - 2);
+  }
+
   return advanceStory(next);
 }
 
 export function applyTimeDrift(state: GameState): GameState {
   const next = structuredClone(state) as GameState;
+  const elapsed = Math.max(0, Date.now() - next.economy.lastYieldAt);
+  const yieldTicks = Math.floor(elapsed / 10000);
+
+  if (yieldTicks > 0) {
+    const cap = 20 + next.economy.gardenLevel * 12;
+    next.economy.uncollectedPetals = Math.min(
+      cap,
+      next.economy.uncollectedPetals + yieldTicks * (1 + next.economy.gardenLevel)
+    );
+    next.economy.lastYieldAt += yieldTicks * 10000;
+  }
+
   next.pet.hunger = clamp(next.pet.hunger - 1);
   next.pet.comfort = clamp(next.pet.comfort - 1);
   next.pet.energy = clamp(next.pet.energy - (next.story.act === 3 ? 2 : 1));
@@ -133,6 +168,34 @@ export function applyTimeDrift(state: GameState): GameState {
   }
 
   return advanceStory(next);
+}
+
+export function collectYield(state: GameState): GameState {
+  const next = applyTimeDrift(state);
+  next.economy.petals += next.economy.uncollectedPetals;
+  next.economy.uncollectedPetals = 0;
+  return next;
+}
+
+export function buyItem(state: GameState, item: 'food' | 'yarn' | 'softBrush' | 'garden'): GameState {
+  const next = structuredClone(state) as GameState;
+  const prices = {
+    food: 6,
+    yarn: 8,
+    softBrush: 10,
+    garden: 18 + next.economy.gardenLevel * 10
+  };
+  const price = prices[item];
+  if (next.economy.petals < price) return next;
+  next.economy.petals -= price;
+
+  if (item === 'garden') {
+    next.economy.gardenLevel += 1;
+  } else {
+    next.economy[item] += 1;
+  }
+
+  return next;
 }
 
 export function advanceStory(state: GameState): GameState {

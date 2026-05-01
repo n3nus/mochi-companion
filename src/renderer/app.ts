@@ -2,7 +2,7 @@ import './styles/main.css';
 import { RoomAudio } from './audio';
 import { sceneEvents, pickActionLine, pickIdleLine } from './content/lines';
 import { CompanionScene } from './scene';
-import { applyCareAction, applyTimeDrift, hydrateState, resetState } from './state';
+import { applyCareAction, applyTimeDrift, buyItem, collectYield, hydrateState, resetState } from './state';
 import type { AudioCue } from './audio';
 import type { CareAction, GameState, PetBehavior, SceneEvent } from './types';
 
@@ -68,6 +68,24 @@ appRoot.innerHTML = `
           <button class="routine-button" data-action="play"><span>Play</span><small>Ball</small></button>
           <button class="routine-button" data-action="comfort"><span>Comfort</span><small>Brush</small></button>
           <button class="routine-button" data-action="rest"><span>Rest</span><small>Bed</small></button>
+          <button class="routine-button wide" data-action="tend"><span>Tend</span><small>Garden</small></button>
+        </section>
+
+        <section class="market-card">
+          <div class="market-head">
+            <div>
+              <p class="eyebrow">Pocket</p>
+              <h2 id="petals">0 petals</h2>
+            </div>
+            <button class="ghost-button" id="collect">Collect</button>
+          </div>
+          <div class="inventory-row" id="inventory"></div>
+          <div class="shop-grid">
+            <button class="shop-button" data-buy="food">Food <small>6</small></button>
+            <button class="shop-button" data-buy="yarn">Yarn <small>8</small></button>
+            <button class="shop-button" data-buy="softBrush">Brush <small>10</small></button>
+            <button class="shop-button" data-buy="garden">Garden <small id="garden-price">28</small></button>
+          </div>
         </section>
 
         <section class="notes-card">
@@ -91,6 +109,9 @@ const challengeLabel = document.querySelector<HTMLParagraphElement>('#challenge-
 const challengeTitle = document.querySelector<HTMLHeadingElement>('#challenge-title')!;
 const challengeCopy = document.querySelector<HTMLParagraphElement>('#challenge-copy')!;
 const challengePlayfield = document.querySelector<HTMLDivElement>('#challenge-playfield')!;
+const petalsEl = document.querySelector<HTMLHeadingElement>('#petals')!;
+const inventoryEl = document.querySelector<HTMLDivElement>('#inventory')!;
+const gardenPriceEl = document.querySelector<HTMLSpanElement>('#garden-price')!;
 
 const audio = new RoomAudio();
 let state = resetState();
@@ -138,6 +159,21 @@ function render() {
     meter('Attachment', state.pet.dependency),
     meter('Tension', state.pet.stress)
   ].join('');
+
+  petalsEl.textContent = `${state.economy.petals} petals`;
+  inventoryEl.innerHTML = `
+    <span>Food ${state.economy.food}</span>
+    <span>Yarn ${state.economy.yarn}</span>
+    <span>Brush ${state.economy.softBrush}</span>
+    <span>Garden Lv.${state.economy.gardenLevel}</span>
+    <span>Ready ${state.economy.uncollectedPetals}</span>
+  `;
+  gardenPriceEl.textContent = String(18 + state.economy.gardenLevel * 10);
+  document.querySelectorAll<HTMLButtonElement>('[data-buy]').forEach((button) => {
+    const item = button.dataset.buy as 'food' | 'yarn' | 'softBrush' | 'garden';
+    const price = item === 'garden' ? 18 + state.economy.gardenLevel * 10 : item === 'softBrush' ? 10 : item === 'yarn' ? 8 : 6;
+    button.disabled = state.economy.petals < price;
+  });
 
   scene?.setState(state);
 }
@@ -202,6 +238,13 @@ async function runRoutine(action: CareAction) {
   }
 }
 
+function requiredItem(action: CareAction) {
+  if (action === 'feed') return state.economy.food > 0 ? null : 'Buy or harvest more food first.';
+  if (action === 'play') return state.economy.yarn > 0 ? null : 'Buy yarn first. Mochi will not chase empty hands.';
+  if (action === 'comfort') return state.economy.softBrush > 0 ? null : 'Buy a soft brush first.';
+  return null;
+}
+
 function stopChallengeTimer() {
   if (challengeTimer !== null) {
     window.clearInterval(challengeTimer);
@@ -231,14 +274,25 @@ function startChallenge(action: CareAction) {
   challengeCard.classList.remove('hidden');
   challengeLabel.textContent = 'Active routine';
 
+  const missing = requiredItem(action);
+  if (missing) {
+    activeChallenge = null;
+    setActiveButton(null);
+    challengeCard.classList.add('hidden');
+    say(missing, 'low');
+    return;
+  }
+
   if (action === 'feed') {
     buildFeedChallenge();
   } else if (action === 'play') {
     buildPlayChallenge();
   } else if (action === 'comfort') {
     buildComfortChallenge();
-  } else {
+  } else if (action === 'rest') {
     buildRestChallenge();
+  } else {
+    buildTendChallenge();
   }
 }
 
@@ -403,6 +457,37 @@ function buildRestChallenge() {
   });
 }
 
+function buildTendChallenge() {
+  challengeTitle.textContent = 'Tend the garden';
+  challengeCopy.textContent = 'Collect the glowing petals in the room. The garden keeps growing while you are away.';
+  challengePlayfield.innerHTML = `
+    <div class="score-row"><span id="tend-score">0 / 5</span><span>garden Lv.${state.economy.gardenLevel}</span></div>
+    <button class="petal-target" id="petal-target" aria-label="Petal"></button>
+  `;
+
+  const target = document.querySelector<HTMLButtonElement>('#petal-target')!;
+  const scoreEl = document.querySelector<HTMLSpanElement>('#tend-score')!;
+  let score = 0;
+
+  function movePetal() {
+    target.style.left = `${10 + Math.random() * 76}%`;
+    target.style.top = `${28 + Math.random() * 55}%`;
+  }
+
+  target.addEventListener('click', async () => {
+    score += 1;
+    scoreEl.textContent = `${score} / 5`;
+    audio.cue(score >= 4 ? 'shift' : 'spark');
+    if (score >= 5) {
+      await completeChallenge('tend');
+      return;
+    }
+    movePetal();
+  });
+
+  movePetal();
+}
+
 function sleep(ms: number) {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
@@ -465,6 +550,24 @@ document.querySelectorAll<HTMLButtonElement>('[data-action]').forEach((button) =
 document.querySelector<HTMLButtonElement>('#challenge-cancel')?.addEventListener('click', () => {
   clearChallenge();
   say('We can do another routine.', 'soft');
+});
+
+document.querySelector<HTMLButtonElement>('#collect')?.addEventListener('click', async () => {
+  state = collectYield(state);
+  say('The garden had something ready.', 'spark');
+  render();
+  await persist();
+});
+
+document.querySelectorAll<HTMLButtonElement>('[data-buy]').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const item = button.dataset.buy as 'food' | 'yarn' | 'softBrush' | 'garden';
+    const before = state.economy.petals;
+    state = buyItem(state, item);
+    say(state.economy.petals === before ? 'Not enough petals yet.' : 'Bought. Put it somewhere Mochi can see.', 'soft');
+    render();
+    await persist();
+  });
 });
 
 document.querySelector<HTMLButtonElement>('#minimize')?.addEventListener('click', () => window.mochi.window.minimize());
