@@ -32,6 +32,17 @@ appRoot.innerHTML = `
           <button class="ghost-button" id="reset">Reset</button>
         </div>
         <div id="scene-mount"></div>
+        <section class="challenge-card hidden" id="challenge-card">
+          <div class="challenge-header">
+            <div>
+              <p class="eyebrow" id="challenge-label">Routine</p>
+              <h2 id="challenge-title">Prepare</h2>
+            </div>
+            <button class="icon-button" id="challenge-cancel" aria-label="Cancel routine">x</button>
+          </div>
+          <p id="challenge-copy" class="challenge-copy"></p>
+          <div id="challenge-playfield" class="challenge-playfield"></div>
+        </section>
         <div class="scene-hint" id="scene-hint">Click an object in the room, or use a routine below.</div>
       </section>
 
@@ -57,18 +68,6 @@ appRoot.innerHTML = `
           <button class="routine-button" data-action="play"><span>Play</span><small>Ball</small></button>
           <button class="routine-button" data-action="comfort"><span>Comfort</span><small>Brush</small></button>
           <button class="routine-button" data-action="rest"><span>Rest</span><small>Bed</small></button>
-        </section>
-
-        <section class="challenge-card hidden" id="challenge-card">
-          <div class="challenge-header">
-            <div>
-              <p class="eyebrow" id="challenge-label">Routine</p>
-              <h2 id="challenge-title">Prepare</h2>
-            </div>
-            <button class="icon-button" id="challenge-cancel" aria-label="Cancel routine">x</button>
-          </div>
-          <p id="challenge-copy" class="challenge-copy"></p>
-          <div id="challenge-playfield" class="challenge-playfield"></div>
         </section>
 
         <section class="notes-card">

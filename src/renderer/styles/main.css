@@ -291,7 +291,14 @@ h2 {
 }
 
 .challenge-card {
+  position: absolute;
+  z-index: 8;
+  right: 18px;
+  bottom: 48px;
+  width: min(420px, calc(100% - 36px));
   padding: 14px;
+  box-shadow: 0 22px 50px rgba(0, 0, 0, 0.32);
+  backdrop-filter: blur(18px);
 }
 
 .hidden {
@@ -314,7 +321,7 @@ h2 {
 
 .challenge-playfield {
   position: relative;
-  min-height: 160px;
+  min-height: 188px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 8px;
@@ -325,12 +332,12 @@ h2 {
 
 .drop-zone {
   position: absolute;
-  right: 22px;
-  bottom: 28px;
+  right: 28px;
+  bottom: 34px;
   display: grid;
   place-items: center;
-  width: 98px;
-  height: 58px;
+  width: 126px;
+  height: 76px;
   border: 1px solid rgba(217, 163, 117, 0.5);
   border-radius: 50%;
   color: #f2d2a8;
@@ -344,10 +351,10 @@ h2 {
 
 .treat-token {
   position: absolute;
-  left: 22px;
-  top: 54px;
-  width: 78px;
-  height: 42px;
+  left: 26px;
+  top: 68px;
+  width: 86px;
+  height: 46px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   border-radius: 999px;
   color: #2b1c16;
@@ -383,7 +390,7 @@ h2 {
 
 .hold-pad {
   position: absolute;
-  inset: 24px 30px 60px;
+  inset: 30px 36px 68px;
   border: 1px solid rgba(121, 200, 183, 0.36);
   border-radius: 8px;
   color: #d9fff5;
@@ -393,9 +400,9 @@ h2 {
 
 .hold-meter {
   position: absolute;
-  left: 30px;
-  right: 30px;
-  bottom: 26px;
+  left: 36px;
+  right: 36px;
+  bottom: 30px;
   height: 8px;
   overflow: hidden;
   border-radius: 999px;
@@ -411,9 +418,9 @@ h2 {
 
 .timing-bar {
   position: absolute;
-  left: 28px;
-  right: 28px;
-  top: 52px;
+  left: 34px;
+  right: 34px;
+  top: 62px;
   height: 18px;
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.08);
@@ -442,7 +449,7 @@ h2 {
 .settle-button {
   position: absolute;
   left: 50%;
-  bottom: 28px;
+  bottom: 34px;
   min-width: 128px;
   padding: 10px 18px;
   border: 1px solid rgba(255, 255, 255, 0.12);
