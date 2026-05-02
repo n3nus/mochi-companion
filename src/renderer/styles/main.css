@@ -850,6 +850,60 @@ body[data-room="garden"] .cat-stage {
   filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.35));
 }
 
+.morsel-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  padding: 48px 24px 22px;
+}
+
+.morsel-token {
+  min-width: 0;
+  min-height: 46px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 8px;
+  color: #f4efe8;
+  background: rgba(255, 255, 255, 0.07);
+  cursor: pointer;
+  transition:
+    transform 160ms ease,
+    border-color 160ms ease,
+    opacity 160ms ease;
+}
+
+.morsel-token.gold {
+  background: linear-gradient(135deg, rgba(242, 210, 168, 0.28), rgba(217, 163, 117, 0.16));
+}
+
+.morsel-token.green {
+  background: linear-gradient(135deg, rgba(121, 200, 183, 0.26), rgba(93, 143, 126, 0.14));
+}
+
+.morsel-token.rose {
+  background: linear-gradient(135deg, rgba(226, 162, 173, 0.25), rgba(217, 163, 117, 0.12));
+}
+
+.morsel-token.blue,
+.morsel-token.ash,
+.morsel-token.violet {
+  filter: saturate(0.72) brightness(0.88);
+}
+
+.morsel-token:hover {
+  transform: translateY(-1px);
+  border-color: rgba(242, 210, 168, 0.48);
+}
+
+.morsel-token.picked {
+  border-color: rgba(121, 200, 183, 0.72);
+  opacity: 0.5;
+}
+
+.morsel-token.wrong {
+  border-color: rgba(212, 96, 93, 0.78);
+  background: rgba(212, 96, 93, 0.18);
+}
+
 .score-row {
   display: flex;
   justify-content: space-between;
@@ -869,6 +923,50 @@ body[data-room="garden"] .cat-stage {
   box-shadow: 0 0 24px rgba(242, 210, 168, 0.72);
   transform: translate(-50%, -50%);
   cursor: pointer;
+}
+
+.paw-pad-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 74px);
+  justify-content: center;
+  gap: 16px;
+  padding-top: 24px;
+}
+
+.paw-pad {
+  width: 74px;
+  height: 58px;
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 8px;
+  background:
+    radial-gradient(circle at 50% 38%, rgba(242, 210, 168, 0.42) 0 18%, transparent 19%),
+    radial-gradient(circle at 34% 58%, rgba(121, 200, 183, 0.24) 0 12%, transparent 13%),
+    radial-gradient(circle at 66% 58%, rgba(121, 200, 183, 0.24) 0 12%, transparent 13%),
+    rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  transition:
+    transform 140ms ease,
+    background 140ms ease,
+    box-shadow 140ms ease;
+}
+
+.paw-pad.active {
+  background:
+    radial-gradient(circle at 50% 38%, #fff6df 0 18%, transparent 19%),
+    radial-gradient(circle at 34% 58%, #f2d2a8 0 12%, transparent 13%),
+    radial-gradient(circle at 66% 58%, #f2d2a8 0 12%, transparent 13%),
+    rgba(242, 210, 168, 0.2);
+  box-shadow: 0 0 24px rgba(242, 210, 168, 0.52);
+  transform: translateY(-2px);
+}
+
+.paw-pad.hit {
+  border-color: rgba(121, 200, 183, 0.72);
+}
+
+.paw-pad.wrong {
+  border-color: rgba(212, 96, 93, 0.82);
+  background: rgba(212, 96, 93, 0.2);
 }
 
 .hold-pad {
@@ -893,6 +991,84 @@ body[data-room="garden"] .cat-stage {
 }
 
 #hold-fill {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #79c8b7, #f2d2a8);
+}
+
+.brush-path {
+  position: absolute;
+  inset: 14px 18px 48px;
+}
+
+.brush-node {
+  position: absolute;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid rgba(121, 200, 183, 0.46);
+  border-radius: 50%;
+  color: #d9fff5;
+  background: rgba(121, 200, 183, 0.12);
+  font-size: 12px;
+  font-weight: 760;
+  transition:
+    transform 160ms ease,
+    background 160ms ease,
+    border-color 160ms ease;
+}
+
+.brush-node.n1 {
+  left: 12%;
+  top: 56%;
+}
+
+.brush-node.n2 {
+  left: 34%;
+  top: 22%;
+}
+
+.brush-node.n3 {
+  right: 30%;
+  top: 50%;
+}
+
+.brush-node.n4 {
+  right: 10%;
+  top: 24%;
+}
+
+.brush-node.brushed {
+  border-color: rgba(242, 210, 168, 0.8);
+  background: rgba(242, 210, 168, 0.2);
+  transform: scale(0.92);
+}
+
+.brush-token {
+  position: absolute;
+  left: 22px;
+  bottom: 12px;
+  width: 76px;
+  height: 38px;
+  border: 1px solid rgba(121, 200, 183, 0.38);
+  border-radius: 999px;
+  color: #d9fff5;
+  background: linear-gradient(135deg, #79c8b7, #4f8178);
+  cursor: grab;
+}
+
+.brush-token.dragging {
+  cursor: grabbing;
+  filter: drop-shadow(0 14px 18px rgba(0, 0, 0, 0.32));
+}
+
+.brush-meter {
+  bottom: 24px;
+}
+
+#brush-fill {
   width: 0;
   height: 100%;
   border-radius: inherit;
@@ -941,6 +1117,52 @@ body[data-room="garden"] .cat-stage {
   background: rgba(255, 255, 255, 0.07);
   transform: translateX(-50%);
   cursor: pointer;
+}
+
+.lamp-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(54px, 1fr));
+  gap: 10px;
+  padding: 48px 24px 24px;
+}
+
+.lamp-button {
+  position: relative;
+  min-width: 0;
+  min-height: 86px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  color: rgba(255, 255, 255, 0.78);
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 246, 216, var(--glow)) 0 18%, rgba(242, 210, 168, 0.18) 19% 40%, transparent 41%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(0, 0, 0, 0.08));
+  cursor: pointer;
+  transition:
+    opacity 160ms ease,
+    border-color 160ms ease,
+    filter 160ms ease;
+}
+
+.lamp-button::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: 12px;
+  width: 26px;
+  height: 36px;
+  border-radius: 999px 999px 7px 7px;
+  background: rgba(120, 101, 85, 0.42);
+  transform: translateX(-50%);
+}
+
+.lamp-button.dimmed {
+  opacity: 0.38;
+  filter: saturate(0.5);
+}
+
+.lamp-button.wrong {
+  border-color: rgba(212, 96, 93, 0.82);
 }
 
 .petal-target {

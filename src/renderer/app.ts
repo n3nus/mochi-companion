@@ -473,6 +473,14 @@ function requiredItem(action: CareAction) {
   return null;
 }
 
+function shuffled<T>(items: T[]) {
+  return [...items].sort(() => Math.random() - 0.5);
+}
+
+function challengeVariant(action: CareAction, count: number) {
+  return (state.signals.actionCounts[action] ?? 0) % count;
+}
+
 function stopChallengeTimer() {
   if (challengeTimer !== null) {
     window.clearInterval(challengeTimer);
@@ -496,11 +504,10 @@ async function completeChallenge(action: CareAction) {
 function startChallenge(action: CareAction) {
   if (isFinaleRunning) return;
   if (action === 'tend') {
-    setRoom('garden');
-    say('Plant seeds, drag the watering can over soil, then harvest when a crop is ready.', 'soft');
-    return;
-  }
-  if (currentRoom !== 'room') {
+    if (currentRoom !== 'garden') {
+      setRoom('garden');
+    }
+  } else if (currentRoom !== 'room') {
     setRoom('room');
   }
   void audio.start();
@@ -520,13 +527,13 @@ function startChallenge(action: CareAction) {
   }
 
   if (action === 'feed') {
-    buildFeedChallenge();
+    challengeVariant(action, 2) === 0 ? buildFeedChallenge() : buildFeedSortChallenge();
   } else if (action === 'play') {
-    buildPlayChallenge();
+    challengeVariant(action, 2) === 0 ? buildPlayChallenge() : buildPlayPatternChallenge();
   } else if (action === 'comfort') {
-    buildComfortChallenge();
+    challengeVariant(action, 2) === 0 ? buildComfortChallenge() : buildComfortBrushChallenge();
   } else if (action === 'rest') {
-    buildRestChallenge();
+    challengeVariant(action, 2) === 0 ? buildRestChallenge() : buildRestLightsChallenge();
   } else {
     buildTendChallenge();
   }
@@ -585,6 +592,65 @@ function buildFeedChallenge() {
   });
 }
 
+function buildFeedSortChallenge() {
+  challengeTitle.textContent = 'Sort the bowl';
+  challengeCopy.textContent = 'Choose the three warm pieces. Leave the cold ones where they are.';
+  const morsels = shuffled([
+    { warm: true, tone: 'gold' },
+    { warm: true, tone: 'green' },
+    { warm: true, tone: 'rose' },
+    { warm: false, tone: 'blue' },
+    { warm: false, tone: 'ash' },
+    { warm: false, tone: 'violet' }
+  ]);
+
+  challengePlayfield.innerHTML = `
+    <div class="score-row"><span id="feed-sort-score">0 / 3</span><span>warm only</span></div>
+    <div class="morsel-grid">
+      ${morsels
+        .map(
+          (morsel, index) => `
+            <button class="morsel-token ${morsel.tone}" data-warm="${morsel.warm}" aria-label="Morsel ${index + 1}">
+              morsel
+            </button>
+          `
+        )
+        .join('')}
+    </div>
+  `;
+
+  const scoreEl = document.querySelector<HTMLSpanElement>('#feed-sort-score')!;
+  let score = 0;
+
+  document.querySelectorAll<HTMLButtonElement>('.morsel-token').forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (button.disabled) return;
+
+      if (button.dataset.warm !== 'true') {
+        button.classList.add('wrong');
+        document.querySelectorAll<HTMLButtonElement>('.morsel-token').forEach((morsel) => {
+          morsel.disabled = true;
+        });
+        say('Cold. Mochi remembers which piece your hand chose.', 'low');
+        window.setTimeout(() => {
+          if (activeChallenge === 'feed') buildFeedSortChallenge();
+        }, 520);
+        return;
+      }
+
+      button.disabled = true;
+      button.classList.add('picked');
+      score += 1;
+      scoreEl.textContent = `${score} / 3`;
+      audio.cue('spark');
+
+      if (score >= 3) {
+        await completeChallenge('feed');
+      }
+    });
+  });
+}
+
 function buildPlayChallenge() {
   challengeTitle.textContent = 'Catch the glint';
   challengeCopy.textContent = 'Click the moving glint four times before Mochi loses interest.';
@@ -628,6 +694,72 @@ function buildPlayChallenge() {
   moveTarget();
 }
 
+function buildPlayPatternChallenge() {
+  challengeTitle.textContent = 'Copy the paw steps';
+  challengeCopy.textContent = 'Watch the pads flash, then repeat the path before the shine fades.';
+  const sequence = Array.from({ length: 4 }, () => Math.floor(Math.random() * 4));
+  challengePlayfield.innerHTML = `
+    <div class="score-row"><span id="paw-score">watch</span><span>${sequence.length} steps</span></div>
+    <div class="paw-pad-grid">
+      ${[0, 1, 2, 3].map((id) => `<button class="paw-pad" data-pad="${id}" aria-label="Paw pad ${id + 1}"></button>`).join('')}
+    </div>
+  `;
+
+  const pads = [...document.querySelectorAll<HTMLButtonElement>('.paw-pad')];
+  const scoreEl = document.querySelector<HTMLSpanElement>('#paw-score')!;
+  let accepting = false;
+  let revealIndex = 0;
+  let inputIndex = 0;
+
+  challengeTimer = window.setInterval(() => {
+    pads.forEach((pad) => pad.classList.remove('active'));
+    if (revealIndex >= sequence.length) {
+      stopChallengeTimer();
+      accepting = true;
+      scoreEl.textContent = 'repeat';
+      return;
+    }
+
+    const pad = pads[sequence[revealIndex]];
+    pad.classList.add('active');
+    audio.cue('spark');
+    window.setTimeout(() => pad.classList.remove('active'), 260);
+    revealIndex += 1;
+  }, 520);
+
+  pads.forEach((pad) => {
+    pad.addEventListener('click', async () => {
+      if (!accepting) {
+        say('Wait. The room is still showing you the path.', 'soft');
+        return;
+      }
+
+      const padId = Number(pad.dataset.pad);
+      if (padId !== sequence[inputIndex]) {
+        pad.classList.add('wrong');
+        accepting = false;
+        pads.forEach((item) => {
+          item.disabled = true;
+        });
+        say('Wrong paw. The shine starts over.', 'shift');
+        window.setTimeout(() => {
+          if (activeChallenge === 'play') buildPlayPatternChallenge();
+        }, 560);
+        return;
+      }
+
+      pad.classList.add('hit');
+      inputIndex += 1;
+      scoreEl.textContent = `${inputIndex} / ${sequence.length}`;
+      audio.cue('spark');
+
+      if (inputIndex >= sequence.length) {
+        await completeChallenge('play');
+      }
+    });
+  });
+}
+
 function buildComfortChallenge() {
   challengeTitle.textContent = 'Keep steady';
   challengeCopy.textContent = 'Hold gently until the meter fills. Letting go starts it over.';
@@ -659,6 +791,72 @@ function buildComfortChallenge() {
 
   pad.addEventListener('pointerup', reset);
   pad.addEventListener('pointerleave', reset);
+}
+
+function buildComfortBrushChallenge() {
+  challengeTitle.textContent = 'Brush the path';
+  challengeCopy.textContent = 'Drag the brush through the glowing points in order. Slow hands work better.';
+  challengePlayfield.innerHTML = `
+    <div class="brush-path">
+      <span class="brush-node n1" data-step="0">1</span>
+      <span class="brush-node n2" data-step="1">2</span>
+      <span class="brush-node n3" data-step="2">3</span>
+      <span class="brush-node n4" data-step="3">4</span>
+      <button class="brush-token" id="brush-token">brush</button>
+    </div>
+    <div class="hold-meter brush-meter"><div id="brush-fill"></div></div>
+  `;
+
+  const token = document.querySelector<HTMLButtonElement>('#brush-token')!;
+  const fill = document.querySelector<HTMLDivElement>('#brush-fill')!;
+  const nodes = [...document.querySelectorAll<HTMLSpanElement>('.brush-node')];
+  let dragging = false;
+  let nextStep = 0;
+
+  function moveBrush(clientX: number, clientY: number, pointerId?: number) {
+    const field = challengePlayfield.getBoundingClientRect();
+    token.style.left = `${clientX - field.left - 34}px`;
+    token.style.top = `${clientY - field.top - 18}px`;
+    token.style.pointerEvents = 'none';
+    const element = document.elementFromPoint(clientX, clientY);
+    token.style.pointerEvents = '';
+    const node = element?.closest<HTMLSpanElement>('.brush-node');
+    if (!node || Number(node.dataset.step) !== nextStep) return;
+
+    node.classList.add('brushed');
+    nextStep += 1;
+    fill.style.width = `${(nextStep / nodes.length) * 100}%`;
+    audio.cue(nextStep >= nodes.length ? 'spark' : 'soft');
+
+    if (nextStep >= nodes.length) {
+      dragging = false;
+      token.classList.remove('dragging');
+      if (pointerId !== undefined && token.hasPointerCapture(pointerId)) {
+        token.releasePointerCapture(pointerId);
+      }
+      void completeChallenge('comfort');
+    }
+  }
+
+  token.addEventListener('pointerdown', (event) => {
+    dragging = true;
+    token.setPointerCapture(event.pointerId);
+    token.classList.add('dragging');
+    moveBrush(event.clientX, event.clientY, event.pointerId);
+  });
+
+  token.addEventListener('pointermove', (event) => {
+    if (!dragging) return;
+    moveBrush(event.clientX, event.clientY, event.pointerId);
+  });
+
+  token.addEventListener('pointerup', (event) => {
+    dragging = false;
+    if (token.hasPointerCapture(event.pointerId)) {
+      token.releasePointerCapture(event.pointerId);
+    }
+    token.classList.remove('dragging');
+  });
 }
 
 function buildRestChallenge() {
@@ -693,9 +891,66 @@ function buildRestChallenge() {
   });
 }
 
+function buildRestLightsChallenge() {
+  challengeTitle.textContent = 'Dim the room';
+  challengeCopy.textContent = 'Turn the lights off from brightest to faintest before Mochi settles.';
+  const lights = shuffled([
+    { order: 0, glow: 96 },
+    { order: 1, glow: 76 },
+    { order: 2, glow: 56 },
+    { order: 3, glow: 36 }
+  ]);
+
+  challengePlayfield.innerHTML = `
+    <div class="score-row"><span id="light-score">0 / 4</span><span>bright to faint</span></div>
+    <div class="lamp-grid">
+      ${lights
+        .map(
+          (light, index) => `
+            <button class="lamp-button" data-order="${light.order}" style="--glow:${light.glow / 100}" aria-label="Lamp ${index + 1}">
+              light
+            </button>
+          `
+        )
+        .join('')}
+    </div>
+  `;
+
+  const scoreEl = document.querySelector<HTMLSpanElement>('#light-score')!;
+  let nextOrder = 0;
+
+  document.querySelectorAll<HTMLButtonElement>('.lamp-button').forEach((button) => {
+    button.addEventListener('click', async () => {
+      if (button.disabled) return;
+
+      if (Number(button.dataset.order) !== nextOrder) {
+        button.classList.add('wrong');
+        document.querySelectorAll<HTMLButtonElement>('.lamp-button').forEach((lamp) => {
+          lamp.disabled = true;
+        });
+        say('Too bright, too sudden. The room wakes back up.', 'low');
+        window.setTimeout(() => {
+          if (activeChallenge === 'rest') buildRestLightsChallenge();
+        }, 560);
+        return;
+      }
+
+      button.disabled = true;
+      button.classList.add('dimmed');
+      nextOrder += 1;
+      scoreEl.textContent = `${nextOrder} / 4`;
+      audio.cue(nextOrder >= 4 ? 'soft' : 'spark');
+
+      if (nextOrder >= 4) {
+        await completeChallenge('rest');
+      }
+    });
+  });
+}
+
 function buildTendChallenge() {
   challengeTitle.textContent = 'Tend the garden';
-  challengeCopy.textContent = 'Collect the glowing petals in the room. The garden keeps growing while you are away.';
+  challengeCopy.textContent = 'Collect the glowing petals over the soil. The garden keeps growing while you are away.';
   challengePlayfield.innerHTML = `
     <div class="score-row"><span id="tend-score">0 / 5</span><span>garden Lv.${state.economy.gardenLevel}</span></div>
     <button class="petal-target" id="petal-target" aria-label="Petal"></button>
