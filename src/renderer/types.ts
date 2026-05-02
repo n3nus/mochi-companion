@@ -1,4 +1,6 @@
 export type CareAction = 'feed' | 'play' | 'comfort' | 'rest' | 'observe' | 'ignore' | 'tend';
+export type RoomId = 'room' | 'garden';
+export type MemoryKind = 'session' | 'absence' | 'window' | 'routine' | 'room' | 'garden' | 'overlay';
 
 export type PetBehavior =
   | 'idle'
@@ -53,11 +55,61 @@ export interface CropPlot {
   lastUpdatedAt: number;
 }
 
+export interface PlayerProfile {
+  displayName: string;
+  nameConfirmed: boolean;
+}
+
+export interface RoutineSignals {
+  sessionStartedAt: number;
+  lastTickAt: number;
+  appOpenSeconds: number;
+  focusedSeconds: number;
+  awaySeconds: number;
+  longestAwaySeconds: number;
+  currentAwayStartedAt: number;
+  roomSeconds: Record<RoomId, number>;
+  actionCounts: Record<CareAction, number>;
+  favoriteAction: CareAction | null;
+}
+
+export interface MemoryEvent {
+  id: string;
+  kind: MemoryKind;
+  text: string;
+  createdAt: number;
+  emotionalWeight: number;
+  recalled: number;
+}
+
+export interface MemoryPatterns {
+  sessionCount: number;
+  lastSeenAt: number;
+  longestAbsenceSeconds: number;
+  firstActionOfSession: CareAction | null;
+  preferredRoom: RoomId | null;
+  hasMinimizedMochi: boolean;
+  hasSeenOverlay: boolean;
+  quickExitCount: number;
+  gardenFirstCount: number;
+  roomFirstCount: number;
+  outsideMentions: number;
+}
+
+export interface MemoryState {
+  events: MemoryEvent[];
+  patterns: MemoryPatterns;
+  lastRecalledAt: number;
+}
+
 export interface GameState {
-  version: 3;
+  version: 4;
   pet: PetState;
   story: StoryState;
   economy: EconomyState;
+  profile: PlayerProfile;
+  signals: RoutineSignals;
+  memories: MemoryState;
   lastLineId?: string;
 }
 

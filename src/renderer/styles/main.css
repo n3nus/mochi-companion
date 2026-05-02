@@ -684,6 +684,54 @@ body[data-room="garden"] .cat-stage {
   transition: width 420ms ease;
 }
 
+.profile-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 7px;
+  margin-top: 11px;
+}
+
+.profile-row input {
+  min-width: 0;
+  height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 7px;
+  color: #f4efe8;
+  background: rgba(0, 0, 0, 0.18);
+  outline: none;
+}
+
+.profile-row input:focus {
+  border-color: rgba(121, 200, 183, 0.48);
+}
+
+.memory-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 25px;
+  margin-top: 8px;
+}
+
+.memory-row span {
+  max-width: 100%;
+  padding: 4px 7px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  color: #d7cec4;
+  background: rgba(255, 255, 255, 0.055);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-row .memory-empty {
+  color: #938a80;
+  background: transparent;
+}
+
 .dialog-card {
   min-height: 98px;
   padding: 12px;

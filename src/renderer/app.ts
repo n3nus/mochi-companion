@@ -8,8 +8,13 @@ import {
   buyItem,
   harvestCrop,
   hydrateState,
+  maybeRecallMemory,
   plantSeed,
+  recordSessionTick,
+  recordOverlayMemory,
+  recordWindowMemory,
   resetState,
+  setProfileName,
   waterPlots
 } from './state';
 import type { AudioCue } from './audio';
@@ -106,6 +111,11 @@ appRoot.innerHTML = `
             </div>
           </div>
           <div class="meters" id="meters"></div>
+          <div class="profile-row">
+            <input id="profile-name" maxlength="18" placeholder="Your name" autocomplete="off" />
+            <button class="ghost-button" id="profile-save">OK</button>
+          </div>
+          <div class="memory-row" id="memory-row"></div>
         </section>
 
         <section class="dialog-card">
@@ -169,6 +179,9 @@ const gardenLayer = document.querySelector<HTMLElement>('#garden-layer')!;
 const gardenBoard = document.querySelector<HTMLDivElement>('#garden-board')!;
 const wateringCan = document.querySelector<HTMLButtonElement>('#watering-can')!;
 const catStage = document.querySelector<HTMLDivElement>('#cat-stage')!;
+const profileNameInput = document.querySelector<HTMLInputElement>('#profile-name')!;
+const profileSaveButton = document.querySelector<HTMLButtonElement>('#profile-save')!;
+const memoryRowEl = document.querySelector<HTMLDivElement>('#memory-row')!;
 
 const audio = new RoomAudio();
 let state = resetState();
@@ -187,6 +200,47 @@ function titleForAct(act: 1 | 2 | 3) {
 
 function formatBehavior(behavior: PetBehavior) {
   return behavior.charAt(0).toUpperCase() + behavior.slice(1);
+}
+
+function compactDuration(seconds: number) {
+  const rounded = Math.max(1, Math.round(seconds));
+  if (rounded < 60) return `${rounded}s`;
+  const minutes = Math.round(rounded / 60);
+  if (minutes < 60) return `${minutes}m`;
+  return `${Math.round(minutes / 60)}h`;
+}
+
+function memoryActionLabel(action: CareAction) {
+  return {
+    feed: 'bowl',
+    play: 'glint',
+    comfort: 'brush',
+    rest: 'bed',
+    observe: 'watch',
+    ignore: 'space',
+    tend: 'garden'
+  }[action];
+}
+
+function renderMemoryChips() {
+  const chips: string[] = [];
+  if (state.profile.nameConfirmed) chips.push(`Name ${state.profile.displayName}`);
+  if (state.signals.favoriteAction) chips.push(`Loop ${memoryActionLabel(state.signals.favoriteAction)}`);
+  if (state.memories.patterns.longestAbsenceSeconds >= 45) {
+    chips.push(`Away ${compactDuration(state.memories.patterns.longestAbsenceSeconds)}`);
+  }
+  if (state.memories.patterns.hasMinimizedMochi) chips.push('Small room');
+  if (state.memories.patterns.hasSeenOverlay) chips.push('Outside');
+  if (state.memories.patterns.preferredRoom === 'garden') chips.push('Garden first');
+
+  if (chips.length === 0) {
+    return '<span class="memory-empty">Memory is quiet</span>';
+  }
+
+  return chips
+    .slice(0, 5)
+    .map((chip) => `<span>${chip}</span>`)
+    .join('');
 }
 
 function meter(label: string, value: number) {
@@ -303,6 +357,10 @@ function render() {
     meter('Attachment', state.pet.dependency),
     meter('Tension', state.pet.stress)
   ].join('');
+  if (document.activeElement !== profileNameInput) {
+    profileNameInput.value = state.profile.displayName;
+  }
+  memoryRowEl.innerHTML = renderMemoryChips();
 
   petalsEl.textContent = `${state.economy.petals} petals`;
   inventoryEl.innerHTML = `
@@ -359,6 +417,23 @@ function findSceneEvent(action?: CareAction): SceneEvent | undefined {
 
 async function persist() {
   await window.mochi.state.save(state);
+}
+
+async function saveProfileName() {
+  const previousName = state.profile.displayName;
+  state = setProfileName(state, profileNameInput.value);
+  if (state.profile.nameConfirmed) {
+    say(
+      state.profile.displayName === previousName
+        ? `I still know your name, ${state.profile.displayName}.`
+        : `I will remember ${state.profile.displayName}.`,
+      state.story.act === 1 ? 'soft' : 'shift'
+    );
+  } else {
+    say('Names can wait. I can still hear the routine.', 'soft');
+  }
+  render();
+  await persist();
 }
 
 async function runRoutine(action: CareAction) {
@@ -666,6 +741,9 @@ async function runFinale() {
 
   await sleep(4200);
   const bounds = await window.mochi.overlay.show();
+  state = recordOverlayMemory(state);
+  render();
+  await persist();
   const baseY = Math.max(24, bounds.height - 260);
   const travel = Math.max(360, bounds.width - 260);
 
@@ -718,6 +796,17 @@ document.querySelectorAll<HTMLButtonElement>('[data-action]').forEach((button) =
 
 document.querySelectorAll<HTMLButtonElement>('[data-room]').forEach((button) => {
   button.addEventListener('click', () => setRoom(button.dataset.room as SceneRoom));
+});
+
+profileSaveButton.addEventListener('click', () => {
+  void saveProfileName();
+});
+
+profileNameInput.addEventListener('keydown', (event) => {
+  if (event.key === 'Enter') {
+    profileNameInput.blur();
+    void saveProfileName();
+  }
 });
 
 document.querySelector<HTMLButtonElement>('#challenge-cancel')?.addEventListener('click', () => {
@@ -829,8 +918,18 @@ wateringCan.addEventListener('pointerup', async () => {
   }
 });
 
-document.querySelector<HTMLButtonElement>('#minimize')?.addEventListener('click', () => window.mochi.window.minimize());
-document.querySelector<HTMLButtonElement>('#close')?.addEventListener('click', () => window.mochi.window.close());
+document.querySelector<HTMLButtonElement>('#minimize')?.addEventListener('click', async () => {
+  state = recordWindowMemory(state, 'minimize');
+  render();
+  await persist();
+  await window.mochi.window.minimize();
+});
+
+document.querySelector<HTMLButtonElement>('#close')?.addEventListener('click', async () => {
+  state = recordWindowMemory(state, 'close');
+  await persist();
+  await window.mochi.window.close();
+});
 document.querySelector<HTMLButtonElement>('#reset')?.addEventListener('click', async () => {
   state = resetState();
   await window.mochi.overlay.hide();
@@ -851,6 +950,14 @@ async function init() {
   startCatWander();
   render();
   say(state.story.aftermathStatus === 'returned' ? 'You still remember the routine.' : pickIdleLine(state), 'soft');
+  await persist();
+
+  window.setInterval(async () => {
+    if (isFinaleRunning) return;
+    state = recordSessionTick(state, !document.hidden, currentRoom);
+    render();
+    await persist();
+  }, 5000);
 
   window.setInterval(async () => {
     if (isFinaleRunning) return;
@@ -860,7 +967,14 @@ async function init() {
       addNote(`Act ${state.story.act}: ${titleForAct(state.story.act)}`);
     }
     if (!document.hidden) {
-      say(pickIdleLine(state), state.story.act === 1 ? 'soft' : 'shift');
+      const recall = maybeRecallMemory(state);
+      if (recall.line) {
+        state = recall.state;
+        say(recall.line, state.story.act === 1 ? 'shift' : 'low');
+        addNote('Mochi remembered something.');
+      } else {
+        say(pickIdleLine(state), state.story.act === 1 ? 'soft' : 'shift');
+      }
     }
     render();
     await persist();
